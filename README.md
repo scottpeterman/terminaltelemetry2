@@ -8,7 +8,7 @@ tfsm-fire engine against a bundled template database, so the same
 "output selects the template" scoring the collector uses drives the HUD.
 
 <https://github.com/scottpeterman/terminaltelemetry2>
-![linux.png](screenshots%2Flinux.png)
+![linux.png](https://raw.githubusercontent.com/scottpeterman/terminaltelemetry2/refs/heads/main/screenshots/linux.png)
 ## Install
 
 From PyPI (once published):
