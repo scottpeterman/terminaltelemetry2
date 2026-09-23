@@ -1,0 +1,30 @@
+widget: intf_updown
+title: Interface Up/Down
+interval: 60
+commands:
+  arista_eos: show interfaces
+  cisco_ios: show interfaces
+  cisco_nxos: show interface
+  juniper_junos: show interfaces
+  linux: "ip -j -s link show; echo @cc; grep -H . /sys/class/net/*/carrier_changes 2>/dev/null"
+templates:
+  linux: py:linux_links
+key: intf
+monitor: intf                                   # right-click -> Monitor Tx/Rx
+fields:
+  intf: [INTERFACE]
+  link: [LINK_STATUS]
+  proto: [PROTOCOL_STATUS, ADMIN_STATE]
+  since: [INTERFACE_UP_TIME, LAST_LINK_FLAPPED]   # EOS up-time, NX-OS last flap
+  changes: [LINK_STATUS_CHANGE]                   # EOS lifetime link-change counter
+  description: [DESCRIPTION]
+deltas:
+  flaps: changes                                  # link changes since the last poll
+view:
+  type: table
+  columns: [intf, link, proto, since, flaps, changes, description]
+  labels: {since: Up/Last flap, flaps: Flaps (poll), changes: Changes (total)}
+  sort: intf
+  alerts:
+    - {field: flaps, op: gt, value: 0}
+    - {field: link, op: match, value: "(?i)down|notconnect|disabled|notpresent", style: muted}

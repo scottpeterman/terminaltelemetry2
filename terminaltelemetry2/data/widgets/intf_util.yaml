@@ -1,0 +1,60 @@
+widget: intf_util
+title: Interface Utilization
+interval: 30
+# IOS reports the 5-minute bit rate (INPUT_RATE/OUTPUT_RATE, bits/sec) and
+# BANDWIDTH (kbit/sec) directly, so utilization is a pure derived value -- no
+# octet-rate math. EOS 'show interfaces' carries no rate or octet counters;
+# for EOS use 'show interfaces counters rates' (inBpsRate/outBpsRate) with a
+# template that exposes them, then swap the field aliases below.
+commands:
+  cisco_ios: show interfaces
+key: intf
+monitor: intf                                   # right-click -> Monitor Tx/Rx
+fields:
+  intf: [INTERFACE]
+  link: [LINK_STATUS]
+  in_rate: [INPUT_RATE]         # bits/sec (IOS 5-minute average)
+  out_rate: [OUTPUT_RATE]
+  bw_kbit: [BANDWIDTH]          # kbit/sec
+  in_err: [INPUT_ERRORS]
+computes:
+  in_util: "in_rate / (bw_kbit * 1000) * 100"
+  out_util: "out_rate / (bw_kbit * 1000) * 100"
+view:
+  type: table
+  columns: [intf, link, in_util, out_util, in_rate, in_err]
+  labels: {in_util: In %, out_util: Out %, in_rate: In trend, in_err: In errs}
+  sort: in_util
+  sort_desc: true
+  cells:
+    link:
+      type: status
+      rules:
+        - {field: link, op: match, value: "(?i)^up", style: ok, text: up}
+        - {field: link, op: match, value: "(?i)down|notconnect|disabled", style: alert, text: down}
+    in_util:
+      type: bar
+      min: 0
+      max: 100
+      suffix: "%"
+      thresholds:
+        - {at: 70, style: warn}
+        - {at: 90, style: alert}
+    out_util:
+      type: bar
+      max: 100
+      suffix: "%"
+      thresholds:
+        - {at: 70, style: warn}
+        - {at: 90, style: alert}
+    in_rate:
+      type: spark
+      history: 30
+    in_err:
+      type: status
+      rules:
+        - {field: in_err, op: gt, value: 0, style: alert}
+        - {field: in_err, op: eq, value: 0, style: ok, text: "0"}
+  # a link that's down shouldn't scream utilization; mute the whole row
+  alerts:
+    - {field: link, op: match, value: "(?i)down|notconnect|disabled", style: muted}

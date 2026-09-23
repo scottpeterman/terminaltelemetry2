@@ -1,0 +1,12 @@
+Physical interface: xe-0/0/0:3, Enabled, Physical link is Down
+  Interface index: 167, SNMP ifIndex: 540, Generation: 201
+  Description: Available
+  Link-level type: Ethernet, MTU: 1514, MRU: 1522, LAN-PHY mode, Speed: 10Gbps,
+  Last flapped   : 2024-12-12 06:42:34 UTC (92w5d 08:07 ago)
+Physical interface: et-0/1/1, Enabled, Physical link is Up
+  Link-level type: Ethernet, MTU: 9192, LAN-PHY mode, Speed: 100Gbps,
+  Traffic statistics:
+   Input  bytes  :          123456789            5000000 bps
+Physical interface: ae0, Enabled, Physical link is Up
+  Description: to-core
+  Link-level type: Ethernet, MTU: 1514, Speed: Unlimited,

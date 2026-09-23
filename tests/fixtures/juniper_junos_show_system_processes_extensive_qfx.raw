@@ -1,0 +1,29 @@
+last pid: 95621;  load averages:  1.04,  0.79,  0.56  up 1441+22:39:18    20:42:22
+172 processes: 4 running, 147 sleeping, 1 zombie, 20 waiting
+
+Mem: 982M Active, 137M Inact, 476M Wired, 124M Cache, 69M Buf, 130M Free
+Swap: 1106M Total, 1106M Free
+
+
+  PID USERNAME      PRI NICE   SIZE    RES STATE    TIME   WCPU COMMAND
+   10 root          155   52     0K    12K RUN       ??? 68.21% idle
+ 1623 root           43   -1  1264M   591M RUN    6177.6 20.21% fxpc
+95582 labuser01      40    0 73012K 57908K select   0:00  4.19% cli
+95579 labuser01      42    0 73012K 57848K select   0:00  3.75% cli
+95573 root           41    0 10848K  5756K select   0:00  0.50% sshd
+95585 root           40    0 63872K 40504K select   0:00  0.44% mgd
+ 1623 root          -52  -52  1264M   591M select 6177.6  0.24% fxpc
+ 1614 root           40    0   127M 38388K select 242.9H  0.05% chassisd
+ 1827 root            4    0   173M 73300K kqread 123.8H  0.05% rpd
+   26 root          -84 -187     0K    12K WAIT   727:27  0.05% irq11: uhci0 em0++*
+   11 root          -36 -139     0K    12K RUN    104.6H  0.00% swi7: clock sio
+ 1900 root          -16    0     0K    12K select 432:35  0.00% ppt_1b_80000010
+    6 root           -8    0     0K    12K -      111:26  0.00% g_down
+   56 root          -16    0     0K    12K long p  15:10  0.00% wkupdaemon
+   60 root          -16    0     0K    12K .       10:27  0.00% ddostasks
+    7 root          -16    0     0K    12K PCI Sc   4:39  0.00% PCI Scan Thread
+   15 root          -32 -135     0K    12K WAIT     0:00  0.00% swi8: +
+    0 root          -16    0     0K     0K WAIT     0:00  0.00% swapper
+
+
+{master:0}

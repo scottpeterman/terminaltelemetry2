@@ -1,0 +1,24 @@
+widget: ospf_neighbors
+title: OSPF Neighbors
+interval: 30
+commands:
+  arista_eos: show ip ospf neighbor
+  cisco_ios: show ip ospf neighbor
+  cisco_nxos: show ip ospf neighbor
+  juniper_junos: show ospf neighbor
+key: neighbor
+fields:
+  neighbor: [NEIGHBOR_ID]
+  state: [STATE]
+  address: [IP_ADDRESS]
+  interface: [INTERFACE]
+  timer: [DEAD_TIME, UPTIME]      # NX-OS reports uptime instead of dead time
+  vrf: [VRF]
+view:
+  type: table
+  columns: [neighbor, state, address, interface, timer, vrf]
+  labels: {neighbor: Neighbor ID, timer: Dead/Up}
+  sort: neighbor
+  alerts:
+    # FULL, or 2WAY on a DROTHER-to-DROTHER broadcast segment, are healthy.
+    - {field: state, op: not_match, value: "(?i)^(full|2[- ]?ways?)"}

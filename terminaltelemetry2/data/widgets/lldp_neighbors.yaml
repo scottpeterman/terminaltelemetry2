@@ -1,0 +1,30 @@
+widget: lldp_neighbors
+title: LLDP Neighbors
+interval: 60
+commands:
+  arista_eos: show lldp neighbors
+  cisco_ios: show lldp neighbors
+  cisco_nxos: show lldp neighbors
+  juniper_junos: show lldp neighbors
+  # lldpctl lives in /usr/sbin, outside a non-root Debian PATH; the socket
+  # needs the _lldpd group (or root).
+  linux: 'PATH="$PATH:/usr/sbin:/sbin" lldpctl -f json'
+templates:
+  linux: py:linux_lldp
+requires:
+  linux: "command -v lldpctl || test -x /usr/sbin/lldpctl"
+key: local
+monitor: local                                   # right-click -> Monitor Tx/Rx
+fields:
+  local: [LOCAL_INTERFACE]
+  neighbor: [NEIGHBOR_NAME, CHASSIS_ID]
+  remote: [NEIGHBOR_INTERFACE]
+  caps: [CAPABILITIES]
+view:
+  type: table
+  columns: [local, neighbor, remote, caps]
+  labels: {local: Local, neighbor: Neighbor, remote: Remote port, caps: Caps}
+  sort: local
+# Some EOS releases emit the header underline as a row the template captures.
+drop:
+  - {field: local, op: match, value: "^-+$"}

@@ -1,0 +1,58 @@
+widget: ip_addresses
+title: IP Addresses
+interval: 60
+# Same commands as Interface Up/Down (EOS/IOS/NX-OS) and Ports (Junos terse),
+# so the broker polls once and each widget parses it its own way.
+commands:
+  arista_eos: show interfaces
+  cisco_ios: show interfaces
+  cisco_nxos: show interface
+  juniper_junos: show interfaces terse
+  linux: ip -j addr show
+# EOS/IOS/NX-OS: small bundled templates that emit one record per address.
+# Junos terse already does (one record per family/address), via AUTO.
+templates:
+  arista_eos: arista_eos_ifaddr
+  cisco_ios: cisco_ios_ifaddr
+  cisco_nxos: cisco_nxos_ifaddr
+  linux: py:linux_addrs
+monitor: intf                                   # right-click -> Monitor Tx/Rx
+fields:
+  intf: [INTERFACE]
+  family: [FAMILY, PROTO]                       # Internet/IPv6 (show interfaces), inet/inet6 (Junos)
+  address: [ADDRESS, LOCAL]
+  subnet: [SUBNET]                              # EOS v6 prints address and subnet separately
+  status: [LINK_STATUS, LINK_STATE]
+drop:
+  # Junos terse carries every family (aenet, mpls, vpls, multiservice ...)
+  - {field: family, op: not_match, value: "(?i)^(inet6?|internet|ipv6)$"}
+  - {field: address, op: empty}
+  # link-local, and Junos RE-internal addressing (fec0::, 127/8, 128.0.0.0/2,
+  # and 10.0.0.x/8 on the internal em/bme units -- exact /8, so real 10/8 space
+  # with any other mask still shows)
+  - {field: address, op: match, value: "(?i)^(fe80:|fec0:|127\\.|128\\.0\\.0\\.)"}
+  - {field: address, op: match, value: "^10\\.0\\.0\\.\\d+/8$"}
+  # Junos internal interfaces / units (PFE, line-card, 16383+ and 32767+ units)
+  - {field: intf, op: match, value: "^(pfe|pfh|lc|jsrv)-|\\.(1638[3-5]|3276[7-9])$"}
+view:
+  type: table
+  columns: [intf, family, address, subnet, status]
+  labels: {intf: Interface, family: AF, address: Address, subnet: Subnet, status: Link}
+  sort: intf
+  cells:
+    family:
+      type: status
+      # dot follows the link: green up, red otherwise (first matching rule wins)
+      rules:
+        - when: [{field: family, op: match, value: "(?i)^(inet6|ipv6)$"},
+                 {field: status, op: not_match, value: "(?i)^up"}]
+          style: alert
+          text: IPv6
+        - {field: family, op: match, value: "(?i)^(inet6|ipv6)$", style: ok, text: IPv6}
+        - when: [{field: family, op: match, value: "(?i)^(inet|internet)$"},
+                 {field: status, op: not_match, value: "(?i)^up"}]
+          style: alert
+          text: IPv4
+        - {field: family, op: match, value: "(?i)^(inet|internet)$", style: ok, text: IPv4}
+  alerts:
+    - {field: status, op: not_match, value: "(?i)^up", style: muted}

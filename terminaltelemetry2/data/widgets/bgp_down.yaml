@@ -1,0 +1,27 @@
+widget: bgp_down
+title: BGP
+interval: 30
+commands:
+  arista_eos: show ip bgp summary
+  cisco_ios: show ip bgp summary
+  cisco_nxos: show ip bgp summary
+  juniper_junos: show bgp summary
+  linux: "vtysh -c 'show bgp summary json'"
+templates:
+  linux: py:frr_bgp_summary
+requires:
+  linux: command -v vtysh
+fields:
+  peer: [BGP_NEIGH, BGP_NEIGHBOR, PEER_IP, NEIGHBOR]
+  state: [STATE, STATE_PFXRCD, STATE_OR_PREFIXES_RECEIVED]
+view:
+  type: stat
+  aggregate: count
+  where:
+    when:
+      - {field: state, op: not_numeric}
+      - {field: state, op: not_match, value: "^Estab"}
+      # Junos, Established with one RIB: State holds Active/Received/Accepted/Damped
+      - {field: state, op: not_match, value: "^\\d+/\\d+/\\d+/\\d+"}
+  label: peers not established
+  alert_above: 0

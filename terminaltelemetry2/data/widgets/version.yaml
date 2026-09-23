@@ -1,0 +1,30 @@
+widget: version
+title: Version
+interval: 300
+commands:
+  arista_eos: show version
+  cisco_ios: show version
+  cisco_nxos: show version
+  juniper_junos: show version
+  linux: >-
+    printf 'HOST=%s\nKERNEL=%s\nARCH=%s\nUPTIME_S=%s\n'
+    "$(hostname)" "$(uname -r)" "$(uname -m)" "$(cut -d' ' -f1 /proc/uptime)";
+    grep -h '^PRETTY_NAME=' /etc/os-release;
+    printf 'VENDOR=%s\nPRODUCT=%s\n'
+    "$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)" "$(cat /sys/class/dmi/id/product_name 2>/dev/null)";
+    sed -n 's/^MemTotal: */MEMTOTAL=/p; s/^MemAvailable: */MEMAVAIL=/p' /proc/meminfo
+templates:
+  linux: py:linux_version
+fields:
+  hostname: [HOSTNAME]
+  model: [MODEL, PLATFORM, HARDWARE]
+  version: [SOFTWARE_VERSION, VERSION, OS, JUNOS_VERSION]
+  serial: [SERIAL_NUMBER, SERIAL]
+  uptime: [UPTIME]
+  reload: [RELOAD_REASON, LAST_REBOOT_REASON]
+  mem_total: [TOTAL_MEMORY]
+  mem_free: [FREE_MEMORY]
+view:
+  type: kv
+  show: [hostname, model, version, serial, uptime, reload, mem_total, mem_free]
+  labels: {mem_total: Mem total (kB), mem_free: Mem free (kB), reload: Last reload}

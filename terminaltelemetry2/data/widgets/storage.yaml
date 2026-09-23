@@ -1,0 +1,24 @@
+widget: storage
+title: Filesystems
+interval: 60
+commands:
+  linux: df -PkT -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs
+templates:
+  linux: py:linux_df
+key: mount
+fields:
+  mount: [MOUNT]
+  fstype: [FSTYPE]
+  size_kb: [SIZE_KB]
+  used_kb: [USED_KB]
+  avail_kb: [AVAIL_KB]
+  pct: [USE_PERCENT]
+view:
+  type: table
+  columns: [mount, fstype, pct, used_kb, avail_kb, size_kb]
+  labels: {mount: Mount, fstype: Type, pct: Use %, used_kb: Used (KiB), avail_kb: Avail (KiB), size_kb: Size (KiB)}
+  sort: pct
+  sort_desc: true
+  alerts:
+    - {field: pct, op: gt, value: 90}
+    - {field: pct, op: gt, value: 80, style: warn}

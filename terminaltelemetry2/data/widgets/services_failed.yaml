@@ -1,0 +1,23 @@
+widget: services_failed
+title: Failed Units
+interval: 60
+commands:
+  linux: systemctl list-units --failed --no-legend --plain --no-pager
+templates:
+  linux: py:systemd_failed
+requires:
+  linux: test -d /run/systemd/system
+key: unit
+fields:
+  unit: [UNIT]
+  load: [LOAD]
+  active: [ACTIVE]
+  sub: [SUB]
+  description: [DESCRIPTION]
+view:
+  type: table
+  columns: [unit, active, sub, description]
+  labels: {unit: Unit, active: Active, sub: Sub, description: Description}
+  sort: unit
+  alerts:
+    - {field: active, op: match, value: "failed"}

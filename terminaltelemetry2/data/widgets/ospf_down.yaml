@@ -1,0 +1,17 @@
+widget: ospf_down
+title: OSPF
+interval: 30
+commands:
+  arista_eos: show ip ospf neighbor
+  cisco_ios: show ip ospf neighbor
+  cisco_nxos: show ip ospf neighbor
+  juniper_junos: show ospf neighbor
+fields:
+  neighbor: [NEIGHBOR_ID]
+  state: [STATE]
+view:
+  type: stat
+  aggregate: count
+  where: {field: state, op: not_match, value: "(?i)^(full|2[- ]?ways?)"}
+  label: adjacencies not full
+  alert_above: 0

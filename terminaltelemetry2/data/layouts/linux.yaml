@@ -1,0 +1,10 @@
+layout: linux
+platforms: [linux]
+terminal:
+  position: left
+  size: 0.4
+rows:
+  - [version, system, bgp_down, services_failed]
+  - [top_procs, storage]
+  - [bgp_peers, lldp_neighbors, containers]
+  - [{name: intf_updown, span: 3}, {name: ip_addresses, span: 2}]

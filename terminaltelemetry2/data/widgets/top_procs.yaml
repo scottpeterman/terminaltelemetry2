@@ -1,0 +1,34 @@
+widget: top_procs
+title: Top Processes
+interval: 20
+# Same command and template as `system`: one poll, one parse feeds both.
+commands:
+  arista_eos: show processes top once
+  juniper_junos: show system processes extensive | no-more
+  linux: LC_ALL=C top -b -n2 -d0.5 -w 512
+templates:
+  juniper_junos: juniper_junos_show_system_processes_extensive
+  linux: py:linux_top_procs
+key: pid
+fields:
+  pid: [PID]
+  cpu: [PERCENT_CPU]
+  mem: [PERCENT_MEMORY]
+  rss: [RESIDENT_MEMORY_SIZE]
+  time: [CPU_TIME]
+  command: [COMMAND]
+# Junos (FreeBSD top) lists per-CPU idle threads near 100% WCPU; drop them so
+# they don't fill the CPU-sorted top-N. Harmless elsewhere -- no real process
+# is named "idle".
+drop:
+  - {field: command, op: match, value: "^idle"}
+view:
+  type: table
+  columns: [pid, cpu, mem, rss, time, command]
+  labels: {cpu: "%CPU", mem: "%MEM", rss: RSS, time: TIME+}
+  sort: cpu
+  sort_desc: true
+  limit: 12
+  alerts:
+    - {field: cpu, op: gt, value: 80}
+    - {field: cpu, op: gt, value: 30, style: warn}

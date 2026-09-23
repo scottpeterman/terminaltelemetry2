@@ -1,0 +1,55 @@
+widget: system
+title: System
+interval: 20
+commands:
+  arista_eos: show processes top once
+  cisco_ios: show processes cpu
+  cisco_nxos: show processes cpu
+  juniper_junos: show system processes extensive | no-more
+  linux: LC_ALL=C top -b -n2 -d0.5 -w 512
+# Explicit template: the "| no-more" pipe would mangle the auto-derived name,
+# so name it directly. The device runs the piped command; the parser uses this.
+templates:
+  juniper_junos: juniper_junos_show_system_processes_extensive
+  linux: py:linux_top_summary
+fields:
+  load1: [GLOBAL_LOAD_AVERAGE_1_MINUTES]
+  load5: [GLOBAL_LOAD_AVERAGE_5_MINUTES]
+  cpu_user: [GLOBAL_CPU_PERCENT_USER]
+  cpu_sys: [GLOBAL_CPU_PERCENT_SYSTEM]
+  # The CPU: summary line when there is one (EOS, Junos 23.x). Junos 13.x and
+  # QFX5100 print no CPU line, so fall back to the idle process's WCPU -- the
+  # drop rule below leaves only that row on those boxes.
+  cpu_idle: [GLOBAL_CPU_PERCENT_IDLE, PERCENT_CPU]
+  cpu_5s: [CPU_5_SEC]
+  cpu_1m: [CPU_1_MIN]
+  cpu_5m: [CPU_5_MIN]
+  mem_used: [GLOBAL_MEM_USED]
+  mem_free: [GLOBAL_MEM_FREE]
+  tasks: [GLOBAL_TASKS_TOTAL]
+  zombies: [GLOBAL_TASKS_ZOMBIE]
+  # helpers for the drop rule; not displayed
+  cpu_line: [GLOBAL_CPU_PERCENT_IDLE]
+  proc: [COMMAND]
+# No CPU line + a process table (Junos 13.x / QFX): keep only the idle process
+# row, so the tile's first record carries its WCPU. EOS and Junos 23.x have a
+# CPU line; IOS/NX-OS have no process column -- neither is touched.
+drop:
+  - when:
+      - {field: cpu_line, op: empty}
+      - {field: proc, op: not_empty}
+      - {field: proc, op: not_match, value: "^idle$"}
+computes:
+  cpu_busy: "100 - cpu_idle"
+view:
+  type: kv
+  show: [load1, load5, cpu_busy, cpu_user, cpu_sys, cpu_idle, cpu_5s, cpu_1m, cpu_5m,
+         mem_used, mem_free, tasks, zombies]
+  labels: {load1: Load 1m, load5: Load 5m, cpu_busy: CPU busy %, cpu_user: CPU user %,
+           cpu_sys: CPU sys %, cpu_idle: CPU idle %, cpu_5s: CPU 5s %, cpu_1m: CPU 1m %,
+           cpu_5m: CPU 5m %, mem_used: Mem used (KiB), mem_free: Mem free (KiB),
+           tasks: Tasks, zombies: Zombies}
+  alerts:
+    - {field: cpu_idle, op: lt, value: 10}
+    - {field: cpu_5m, op: gt, value: 90}
+    - {field: zombies, op: gt, value: 0}

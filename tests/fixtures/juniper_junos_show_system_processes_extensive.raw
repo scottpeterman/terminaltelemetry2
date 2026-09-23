@@ -1,0 +1,31 @@
+labuser01@router1-lab1> show system processes extensive
+last pid: 28146;  load averages:  0.53,  0.43,  0.36  up 693+17:48:16    15:03:48
+514 threads:   7 running, 459 sleeping, 48 waiting
+CPU:  1.5% user,  0.0% nice,  1.1% system,  0.1% interrupt, 97.3% idle
+Mem: 186M Active, 9808M Inact, 1117M Wired, 460M Buf, 36G Free
+Swap: 3072M Total, 3072M Free
+
+  PID USERNAME    PRI NICE   SIZE    RES STATE    C   TIME    WCPU COMMAND
+   11 root        155 ki31     0B    96K RUN      4    ??? 100.00% idle{idle: cpu4}
+   11 root        155 ki31     0B    96K CPU5     5    ??? 100.00% idle{idle: cpu5}
+   11 root        155 ki31     0B    96K CPU1     1    ???  97.66% idle{idle: cpu1}
+33723 root         21    0   803M    86M select   3 417.8H   2.29% mib2d
+34768 root         21    0  2371M  1508M kqread   5 270.5H   1.56% rpd{rpd}
+34821 root         21    0   734M    26M select   2 363.1H   1.46% snmpd
+33709 root         20    0   868M    64M select   5 338.2H   1.27% chassisd{chassisd}
+34799 root         20    0   752M    30M select   0 209.2H   0.88% jinsightd{jinsightd}
+34828 root         20    0  1008M   192M select   5  87.3H   0.39% authd{authd}
+28116 labuser01    20    0    95M    25M select   1   0:00   0.20% cli
+34772 root         20    0   800M    72M select   2 212.1H   0.00% cosd
+   12 root        -72    -     0B   768K WAIT     1  44.4H   0.00% intr{swi1: netisr 5}
+    2 root        -16    -     0B    16K jfe_jo   3 826:36   0.00% jfe_job_0_0
+   12 root        -60    -     0B   768K WAIT     0 596:02   0.00% intr{swi4: clock (0)}
+33709 root        -26  r26   868M    64M nanslp   3  62:01   0.00% chassisd{chassisd}
+   46 root         20    -     0B   144K -        0   2:58   0.00% bufdaemon{bufspacedaemon-6}
+   28 root        -16    -     0B    16K crypto   2   0:00   0.00% crypto returns 0
+    0 root        -76    -     0B   736K -        0   0:00   0.00% kernel{softirq_0}
+   12 root        -52    -     0B   768K WAIT    -1   0:00   0.00% intr{swi6: task queue}
+34809 root         52    0   115M    48M kqread   3   0:00   0.00% na-grpcd{tokio-runtime-worke}
+28146 root         20    0    13M  3676K CPU4     4   0:00   0.00% top
+
+labuser01@router1-lab1>

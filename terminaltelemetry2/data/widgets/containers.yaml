@@ -1,0 +1,27 @@
+widget: containers
+title: Containers
+interval: 30
+# Needs docker group membership (or rootless docker). For sudo instead:
+#   "sudo -n docker ps -a --format '{{json .}}' 2>/dev/null || docker ps -a --format '{{json .}}'"
+# -- note sudo logs every poll to the auth log.
+commands:
+  linux: "docker ps -a --format '{{json .}}'"
+templates:
+  linux: py:docker_ps
+requires:
+  linux: command -v docker
+key: name
+fields:
+  name: [NAME]
+  image: [IMAGE]
+  state: [STATE]
+  status: [STATUS]
+  ports: [PORTS]
+view:
+  type: table
+  columns: [name, image, state, status, ports]
+  labels: {name: Name, image: Image, state: State, status: Status, ports: Ports}
+  sort: name
+  alerts:
+    - {field: state, op: match, value: "(?i)^(restarting|dead)$"}
+    - {field: state, op: match, value: "(?i)^(exited|paused|created)$", style: muted}

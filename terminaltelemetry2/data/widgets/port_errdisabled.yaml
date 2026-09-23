@@ -1,0 +1,16 @@
+widget: port_errdisabled
+title: Ports
+interval: 60
+commands:
+  arista_eos: show interfaces status
+  cisco_ios: show interfaces status
+  cisco_nxos: show interface status
+fields:
+  port: [PORT]
+  status: [STATUS]
+view:
+  type: stat
+  aggregate: count
+  where: {field: status, op: match, value: "(?i)err"}
+  label: err-disabled
+  alert_above: 0

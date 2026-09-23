@@ -1,0 +1,36 @@
+  Logical interface ae0.1001 (Index 333) (SNMP ifIndex 646) (Generation 322)
+    Description: PEERING:IX-EXAMPLE:00000001
+    Flags: Up SNMP-Traps 0x0 VLAN-Tag [ 0x8100.1001 ]  Encapsulation: ENET2
+    Statistics        Packets        pps         Bytes          bps
+    Bundle:
+        Input : 30333904601203     253708 33847690742431279   2423529312
+        Output: 5161182469466     142692 4742381468105927   1100031496
+    Adaptive Statistics:
+        Adaptive Adjusts:          0
+        Adaptive Scans  :          0
+        Adaptive Updates:          0
+    Link:
+      xe-0/0/0.1001
+        Input : 7851481316871      53546 8624606480718487    494274168
+        Output: 1292645413720      22761 1189711770395561    141697864
+      xe-0/0/1.1001
+        Input : 7335677870357      76288 8149162343889842    783864624
+        Output: 1281956349838      32700 1170370084116203    220236952
+      xe-0/0/2.1001
+        Input : 7301663098496      62906 8216561801625603    585430784
+        Output: 1299575373244      40585 1195489871629049    321688952
+      xe-0/0/3.1001
+        Input : 7845082315479      60968 8857360116197347    559959736
+        Output: 1287005332664      46646 1186809741965114    416407728
+    Marker Statistics:   Marker Rx     Resp Tx   Unknown Rx   Illegal Rx
+      xe-0/0/0.1001              0           0            0            0
+      xe-0/0/1.1001              0           0            0            0
+      xe-0/0/2.1001              0           0            0            0
+      xe-0/0/3.1001              0           0            0            0
+    Protocol inet, MTU: 1500, Generation: 440, Route table: 0
+      Flags: Sendbcast-pkt-to-re, Sample-input
+      Input Filters: ae0.1001-i
+      Output Filters: ae0.1001-o
+    Protocol multiservice, MTU: Unlimited, Generation: 426
+    Generation: 443, Route table: 0
+      Policer: Input: __default_arp_policer__

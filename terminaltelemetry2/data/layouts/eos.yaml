@@ -1,0 +1,10 @@
+layout: eos
+platforms: [arista_eos]
+terminal:
+  position: left
+  size: 0.4
+rows:
+  - [version, system, bgp_down, ospf_down, port_errdisabled]
+  - [bgp_peers, ospf_neighbors]
+  - [lldp_neighbors, top_procs]
+  - [{name: intf_updown, span: 3}, {name: ip_addresses, span: 2}]

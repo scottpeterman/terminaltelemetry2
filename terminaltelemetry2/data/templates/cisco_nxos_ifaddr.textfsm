@@ -1,0 +1,24 @@
+# cisco_nxos_ifaddr -- interface addresses from `show interface` (custom).
+# One record per address, so the IP Addresses widget can share the poll that
+# Interface Up/Down already makes (same command, second parse).
+# Named without "show"/"interface(s)" on purpose: the scored sweep for an AUTO
+# widget on this command matches every template containing all of its terms,
+# and this one must never be picked for Interface Up/Down.
+#   v4:  "  Internet address is 10.0.0.1/24"   (NX-OS: "Internet Address is")
+#   v6:  "  IPv6 global unicast address(es):"   (EOS)
+#        "    2001:db8:100:a::b, subnet is 2001:db8:100:a::a/127"
+# Link-local is skipped. FAMILY fills down so each v6 line inherits "IPv6".
+Value Filldown INTERFACE (\S+)
+Value Filldown LINK_STATUS ([^,]+?)
+Value Filldown FAMILY ([Ii]nternet|IPv6)
+Value ADDRESS (\S+?)
+Value SUBNET (\S+)
+
+Start
+  ^\S+\s+is\s+ -> Continue.Clearall
+  ^${INTERFACE}\s+is\s+${LINK_STATUS}\s*(?:,.*)?$$
+  ^\s+${FAMILY}\s+[Aa]ddress\s+is\s+${ADDRESS}(?:\s.*)?$$ -> Record
+  ^\s+${FAMILY}\s+global\s+unicast\s+address
+  ^\s+${ADDRESS},\s+subnet\s+is\s+${SUBNET}\s*$$ -> Record
+
+EOF

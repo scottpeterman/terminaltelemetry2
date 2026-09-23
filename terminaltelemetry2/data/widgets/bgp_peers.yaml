@@ -1,0 +1,37 @@
+widget: bgp_peers
+title: BGP Peers
+interval: 30
+commands:
+  arista_eos: show ip bgp summary
+  cisco_ios: show ip bgp summary
+  cisco_nxos: show ip bgp summary
+  juniper_junos: show bgp summary
+  # FRR: vtysh needs the frrvty group (or root). With sudo instead:
+  #   "sudo -n vtysh -c 'show bgp summary json' 2>/dev/null || vtysh -c 'show bgp summary json'"
+  # (bgp_down must use the identical string to keep sharing the poll)
+  linux: "vtysh -c 'show bgp summary json'"
+templates:
+  linux: py:frr_bgp_summary
+requires:
+  linux: command -v vtysh
+key: peer
+fields:
+  peer: [BGP_NEIGH, BGP_NEIGHBOR, PEER_IP, NEIGHBOR]
+  asn: [NEIGH_AS, NEIGHBOR_AS, PEER_AS, REMOTE_AS]
+  up_down: [UP_DOWN, LAST_FLAP, LAST_UP_DOWN]
+  # EOS/NX-OS/IOS put either the state or the prefix count in one column;
+  # Junos reports STATE ("Establ") separately. Some templates abbreviate to
+  # "Estab" -- ^Estab covers Estab / Establ / Established.
+  state: [STATE, STATE_PFXRCD, STATE_OR_PREFIXES_RECEIVED]
+view:
+  type: table
+  columns: [peer, asn, up_down, state]
+  labels: {peer: Neighbor, asn: AS, up_down: Up/Down, state: State/PfxRcd}
+  sort: peer
+  alerts:
+    - when:
+        - {field: state, op: not_numeric}
+        - {field: state, op: not_match, value: "^Estab"}
+        # Junos, Established with one RIB: State holds Active/Received/Accepted/Damped
+        - {field: state, op: not_match, value: "^\\d+/\\d+/\\d+/\\d+"}
+      style: alert

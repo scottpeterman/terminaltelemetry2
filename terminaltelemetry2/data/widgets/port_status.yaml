@@ -1,0 +1,26 @@
+widget: port_status
+title: Ports
+interval: 60
+commands:
+  arista_eos: show interfaces status
+  cisco_ios: show interfaces status
+  cisco_nxos: show interface status
+  juniper_junos: show interfaces terse
+key: port
+# Junos 'show interfaces terse' yields a record per address family and per
+# address, so one unit (ae0.9: inet, inet6, mpls) repeats. One row per port.
+unique: true
+monitor: port                                   # right-click -> Monitor Tx/Rx
+fields:
+  port: [PORT, INTERFACE]
+  name: [NAME]
+  status: [STATUS, LINK_STATE]
+  vlan: [VLAN_ID]
+  speed: [SPEED]
+  type: [TYPE]
+view:
+  type: table
+  columns: [port, name, status, vlan, speed, type]
+  alerts:
+    - {field: status, op: match, value: "(?i)err"}
+    - {field: status, op: match, value: "(?i)^(notconnect|down|inactive|disabled)", style: muted}

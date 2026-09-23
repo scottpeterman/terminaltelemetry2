@@ -1,0 +1,14 @@
+last pid: 36201;  load averages:  0.85,  0.36,  0.27  up 3698+17:45:18    15:25:02
+140 processes: 2 running, 109 sleeping, 1 zombie, 28 waiting
+
+Mem: 1121M Active, 376M Inact, 338M Wired, 74M Cache, 112M Buf, 74M Free
+Swap: 2915M Total, 422M Used, 2493M Free, 14% Inuse
+
+
+  PID USERNAME       THR PRI NICE   SIZE    RES STATE    TIME   WCPU COMMAND
+   10 root             1 171   52     0K    16K RUN       ??? 60.21% idle
+ 1421 root             1  96    0 52368K 27032K select 2348.4  1.66% mib2d
+36175 labuser01        1  96    0 46468K 36164K select   0:02  0.90% cli
+   11 root             1 -40 -159     0K    16K WAIT   831.8H  0.39% swi2: netisr 0
+ 1501 root             1   4    0  1201M   824M kqread 4969.8  0.00% rpd
+   27 root             1 -68 -187     0K    16K WAIT   386.0H  0.00% irq36: tsec1

@@ -1,0 +1,33 @@
+widget: intf_counters
+title: Interface Counters
+interval: 30
+# ntc's arista_eos_show_interfaces template carries no packet counters, so no EOS entry.
+commands:
+  cisco_ios: show interfaces
+  cisco_nxos: show interface
+  linux: "ip -j -s link show; echo @cc; grep -H . /sys/class/net/*/carrier_changes 2>/dev/null"
+templates:
+  linux: py:linux_links
+key: intf
+monitor: intf                                   # right-click -> Monitor Tx/Rx
+fields:
+  intf: [INTERFACE]
+  link: [LINK_STATUS]
+  in_pkts: [INPUT_PACKETS]
+  out_pkts: [OUTPUT_PACKETS]
+  in_err: [INPUT_ERRORS]
+  out_err: [OUTPUT_ERRORS]
+rates:
+  in_pps: in_pkts
+  out_pps: out_pkts
+  in_err_ps: in_err
+  out_err_ps: out_err
+view:
+  type: table
+  columns: [intf, link, in_pps, out_pps, in_err_ps, out_err_ps, in_err]
+  labels: {in_pps: in pps, out_pps: out pps, in_err_ps: in err/s, out_err_ps: out err/s, in_err: in err total}
+  sort: intf
+  alerts:
+    - {field: in_err_ps, op: gt, value: 0}
+    - {field: out_err_ps, op: gt, value: 0}
+    - {field: link, op: not_match, value: "(?i)^up", style: muted}
