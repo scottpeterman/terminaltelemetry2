@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,21 @@ version = "0.1.0"
 description = "SSH terminal plus user-defined, TextFSM-driven telemetry widgets for network devices"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "GPL-3.0-or-later" }
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Scott Peterman" }]
+keywords = ["network", "ssh", "telemetry", "textfsm", "terminal", "arista", "juniper", "cisco", "linux", "pyside6"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Telecommunications Industry",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Networking :: Monitoring",
+]
 dependencies = [
     "PySide6>=6.5",
     "paramiko>=3.4,<5",  # 5.x strips legacy crypto handlers (ssh-rsa/SHA-1); breaks host-key verify on network gear
@@ -16,6 +30,11 @@ dependencies = [
     "click>=8.0",        # tfsm_fire uses click.echo for verbose output
     "PyYAML>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/scottpeterman/terminaltelemetry2"
+Source = "https://github.com/scottpeterman/terminaltelemetry2"
+Issues = "https://github.com/scottpeterman/terminaltelemetry2/issues"
 
 [project.optional-dependencies]
 # anytermqt wheels are built against an exact PySide6 (0.1.0 pins PySide6==6.10.3).
