@@ -40,7 +40,7 @@ Issues = "https://github.com/scottpeterman/terminaltelemetry2/issues"
 # anytermqt wheels are built against an exact PySide6 (0.1.0 pins PySide6==6.10.3).
 # Not on PyPI yet:
 #   pip install -e ".[terminal]" --find-links https://github.com/scottpeterman/anytermqt/releases/expanded_assets/v0.1.0
-terminal = ["anytermqt>=0.1.0"]
+terminal = ["anytermqt>=0.1.2"]
 dev = ["pytest>=8"]
 
 [project.scripts]
@@ -51,7 +51,7 @@ tt2 = "terminaltelemetry2.app:main"
 include = ["terminaltelemetry2*"]
 
 [tool.setuptools.package-data]
-terminaltelemetry2 = ["data/*.db", "data/templates/*.textfsm", "data/widgets/*.yaml", "data/layouts/*.yaml"]
+terminaltelemetry2 = ["data/*.db", "data/templates/*.textfsm", "data/widgets/*.yaml", "data/layouts/*.yaml", "data/platforms/*.yaml", "data/licenses/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

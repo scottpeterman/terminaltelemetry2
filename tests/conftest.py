@@ -20,9 +20,11 @@ def fixture_text(name: str) -> str:
 class FakeDevice:
     """Minimal network-CLI SSH server: echoes input, prints outputs[cmd], then the prompt."""
 
-    def __init__(self, outputs, prompt="rtr1#"):
+    def __init__(self, outputs, prompt="rtr1#", delays=None):
         self.outputs = outputs            # command -> str (mutable between polls)
         self.prompt = prompt
+        self.seen = []                      # every non-empty line received, in order
+        self.delays = dict(delays or {})    # command -> seconds of silence before its output
         self.counts = {}
         self.transports = []
         self._key = paramiko.RSAKey.generate(2048)
@@ -70,7 +72,11 @@ class FakeDevice:
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
                     cmd = line.decode().strip()
+                    if cmd:
+                        self.seen.append(cmd)
                     ch.send(line + b"\r\n")
+                    if cmd in self.delays:
+                        time.sleep(self.delays[cmd])
                     if cmd in self.outputs:
                         self.counts[cmd] = self.counts.get(cmd, 0) + 1
                         ch.send(self.outputs[cmd].replace("\n", "\r\n").encode())
@@ -93,8 +99,8 @@ class FakeDevice:
 def fake_device():
     devs = []
 
-    def make(outputs, prompt="rtr1#"):
-        d = FakeDevice(outputs, prompt)
+    def make(outputs, prompt="rtr1#", delays=None):
+        d = FakeDevice(outputs, prompt, delays)
         devs.append(d)
         return d
 

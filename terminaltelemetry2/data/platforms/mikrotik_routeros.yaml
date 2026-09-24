@@ -1,0 +1,15 @@
+# MikroTik RouterOS: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+# No paging command: RouterOS login-name options turn off colors (c) and terminal
+# auto-detection (t) and set a 511x4098 terminal, so output doesn't page.
+platform: mikrotik_routeros
+title: MikroTik RouterOS
+aliases: [routeros, mikrotik]
+match:
+  vendor: [mikrotik]
+tested: false
+session:
+  paging: []
+  username_suffix: '+ct511w4098h'
+bindings: {}

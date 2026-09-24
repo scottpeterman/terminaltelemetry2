@@ -1,0 +1,13 @@
+platform: juniper_junos
+title: Juniper Junos
+aliases: [junos, juniper]
+match:
+  vendor: [juniper]
+tested: true
+session:
+  paging: set cli screen-length 0
+  enable: null
+counters:
+  command: show interfaces {intf} detail
+  parser: builtin
+bindings: {}

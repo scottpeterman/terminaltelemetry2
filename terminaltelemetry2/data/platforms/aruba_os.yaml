@@ -1,0 +1,10 @@
+# Aruba OS (mobility controllers): session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: aruba_os
+title: Aruba OS (mobility controllers)
+aliases: [arubaos, aruba_osswitch]
+tested: false
+session:
+  paging: no paging
+bindings: {}

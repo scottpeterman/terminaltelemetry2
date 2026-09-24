@@ -1,0 +1,10 @@
+# Cisco Viptela / SD-WAN (vEdge): session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: cisco_viptela
+title: Cisco Viptela / SD-WAN (vEdge)
+aliases: [viptela, vedge]
+tested: false
+session:
+  paging: paginate false
+bindings: {}

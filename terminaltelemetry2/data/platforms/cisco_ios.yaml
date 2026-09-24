@@ -1,0 +1,13 @@
+platform: cisco_ios
+title: Cisco IOS / IOS-XE
+aliases: [ios, iosxe, ios-xe, cisco_xe, cisco_iosxe, cisco_ios_xe]
+match:
+  vendor: [cisco]         # no model rules: the default for Cisco when no model pack matches
+tested: true
+session:
+  paging: terminal length 0
+  enable: null            # --enable-command for boxes that land in user mode
+counters:
+  command: show interfaces {intf}
+  parser: builtin
+bindings: {}

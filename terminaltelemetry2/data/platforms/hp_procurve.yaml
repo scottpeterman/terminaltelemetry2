@@ -1,0 +1,10 @@
+# HPE Aruba ProCurve / AOS-S: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: hp_procurve
+title: HPE Aruba ProCurve / AOS-S
+aliases: [procurve, aruba_procurve, aruba_aoss]
+tested: false
+session:
+  paging: no page
+bindings: {}

@@ -1,0 +1,10 @@
+# Juniper ScreenOS: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: juniper_screenos
+title: Juniper ScreenOS
+aliases: [screenos]
+tested: false
+session:
+  paging: set console page 0
+bindings: {}

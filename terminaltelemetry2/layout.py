@@ -42,6 +42,10 @@ class LayoutDef:
     terminal_size: float = 0.5
     rows: List[List[Tuple[str, int]]] = field(default_factory=list)
     source: str = "<memory>"
+    # Widgets with no command on the window's platform: "hide" drops them (and
+    # rows left empty) so a partly-bound vendor gets a compact grid; "show"
+    # keeps a placeholder panel, useful while writing a platform pack.
+    unbound: str = "hide"
 
 
 def parse_layout(data: Any, source: str = "<memory>") -> LayoutDef:
@@ -80,7 +84,10 @@ def parse_layout(data: Any, source: str = "<memory>") -> LayoutDef:
             else:
                 raise LayoutError(f"{src}: rows[{i}][{j}] must be a name or {{name, span}}")
         rows.append(row)
-    return LayoutDef(name, [str(p) for p in platforms], pos, size, rows, source)
+    unbound = str(data.get("unbound", "hide"))
+    if unbound not in ("hide", "show"):
+        raise LayoutError(f"{src}: unbound must be hide or show")
+    return LayoutDef(name, [str(p) for p in platforms], pos, size, rows, source, unbound)
 
 
 def load_layouts(dirs: Iterable[Path]) -> Tuple[Dict[str, LayoutDef], List[str]]:
@@ -131,17 +138,22 @@ def build_layout(
     placed: List[Tuple[WidgetDef, WidgetFrame]] = []
     for row in layout.rows:
         hbox = QHBoxLayout()
+        cells = 0
         for name, span in row:
             defn = widgets.get(name)
             if defn is None:
                 view: WidgetFrame = MissingView(name, f"widget {name!r} not found or invalid")
             elif defn.command_for(platform) is None:
+                if layout.unbound == "hide":
+                    continue
                 view = MissingView(defn.title, f"no command defined for platform {platform!r}")
             else:
                 view = make_view(defn)
                 placed.append((defn, view))
             hbox.addWidget(view, span)
-        vbox.addLayout(hbox, 1)
+            cells += 1
+        if cells:
+            vbox.addLayout(hbox, 1)
 
     if terminal is None or layout.terminal_position == "none":
         return grid, placed

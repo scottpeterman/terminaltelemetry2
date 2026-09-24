@@ -1,0 +1,13 @@
+# Brocade NetIron: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+# both forms sent; whichever this release lacks errors and is discarded.
+platform: brocade_netiron
+title: Brocade NetIron
+aliases: [netiron]
+tested: false
+session:
+  paging:
+    - terminal length 0
+    - skip-page-display
+bindings: {}

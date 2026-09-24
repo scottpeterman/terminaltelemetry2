@@ -3,6 +3,8 @@ per-column cell renderers (bar, status, spark). Users define bindings and
 thresholds, not free rendering."""
 from __future__ import annotations
 
+import html
+
 import re
 import time
 from typing import Any, Dict, List, Optional
@@ -103,6 +105,16 @@ class WidgetFrame(QFrame):
         head.addWidget(self._status)
         self.body = QVBoxLayout()
         self.body.setContentsMargins(4, 0, 4, 4)
+        # Why the last poll failed, in the tile itself -- the status tooltip
+        # alone hid it. Cleared by the next good poll.
+        self._err = QLabel()
+        self._err.setWordWrap(True)
+        self._err.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._err.setStyleSheet(
+            f"color: {STATUS_COLOR['error']}; background: rgba(217, 83, 79, 0.08);"
+            " border: 1px solid rgba(217, 83, 79, 0.35); border-radius: 3px; padding: 4px 6px;")
+        self._err.setVisible(False)
+        self.body.addWidget(self._err)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -119,7 +131,8 @@ class WidgetFrame(QFrame):
             self._lab_btn.setStyleSheet(
                 f"color: {STATUS_COLOR['error']};" if failed else ""
             )
-            tip = "Open this capture and template in the lab"
+            tip = ("Show the raw output this widget's parser got" if src.template.startswith("py:")
+                   else "Open this capture and template in the lab")
             self._lab_btn.setToolTip(f"{tip}\nparse failed: {src.error}" if failed else tip)
 
     def _emit_lab(self) -> None:
@@ -132,14 +145,28 @@ class WidgetFrame(QFrame):
         self._status.setStyleSheet(f"color: {STATUS_COLOR.get(kind, STATUS_COLOR['muted'])};")
 
     def set_updated(self, ts: float, template: Optional[str]) -> None:
+        self._err.setVisible(False)
         self.set_status(time.strftime("%H:%M:%S", time.localtime(ts)), "ok",
                         f"template: {template or '?'}")
 
     def mark_stale(self, reason: str) -> None:
         self.set_status(f"stale: {reason}", "stale")
 
-    def set_error(self, message: str) -> None:
+    def set_error(self, message: str, hint: Optional[str] = None) -> None:
         self.set_status("error", "error", message)
+        short = message if len(message) <= 300 else message[:300] + "..."
+        text = html.escape(short)
+        if hint:
+            text += f"<br><b>{html.escape(hint)}</b>"
+        if self._lab_src is not None:
+            text += "<br><i>{ } shows the raw output</i>"
+        self._err.setText(text)
+        self._err.setVisible(True)
+
+    @property
+    def error_text(self) -> str:
+        """The banner's plain text ('' when the last poll was fine)."""
+        return "" if self._err.isHidden() else self._err.text()
 
     def update_rows(self, rows: List[Dict[str, Any]]) -> None:  # overridden
         raise NotImplementedError

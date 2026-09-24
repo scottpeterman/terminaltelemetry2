@@ -1,0 +1,12 @@
+# VyOS / Vyatta: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: vyatta_vyos
+title: VyOS / Vyatta
+aliases: [vyos, vyatta]
+match:
+  vendor: [vyos]
+tested: false
+session:
+  paging: set terminal length 0
+bindings: {}

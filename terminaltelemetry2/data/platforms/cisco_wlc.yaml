@@ -1,0 +1,10 @@
+# Cisco WLC (AireOS): session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: cisco_wlc
+title: Cisco WLC (AireOS)
+aliases: [aireos, cisco_wlc_ssh]
+tested: false
+session:
+  paging: config paging disable
+bindings: {}

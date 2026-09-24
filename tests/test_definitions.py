@@ -33,7 +33,6 @@ def _base(**over):
     ({"view": {"type": "gauge"}}, "view.type"),
     ({"view": {"type": "table", "alerts": [{"field": "a", "op": "gt"}]}}, "needs a value"),
     ({"view": {"type": "stat", "aggregate": "sum"}}, "needs a known field"),
-    ({"commands": {}}, "commands"),
 ])
 def test_widget_validation_errors(over, msg):
     with pytest.raises(WidgetError, match=msg.replace("(", r"\(")):

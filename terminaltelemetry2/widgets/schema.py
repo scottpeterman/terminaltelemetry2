@@ -243,8 +243,7 @@ def parse_widget(data: Any, source: str = "<memory>") -> WidgetDef:
     src = f"{source} [{name}]"
 
     commands = _str_map(data.get("commands"), src, "commands")
-    if not commands:
-        raise _err(src, "commands: at least one platform -> command is required")
+    # A widget may carry no inline commands: platform packs bind it (platforms.py).
     for plat, cmd in commands.items():
         if len(cmd) > MAX_COMMAND_LEN:
             raise _err(src, f"commands.{plat}: {len(cmd)} chars; keep under {MAX_COMMAND_LEN} "

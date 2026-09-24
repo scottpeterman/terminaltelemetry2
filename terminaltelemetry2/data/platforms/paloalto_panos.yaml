@@ -1,0 +1,12 @@
+# Palo Alto PAN-OS: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: paloalto_panos
+title: Palo Alto PAN-OS
+aliases: [panos, palo_alto, paloalto]
+match:
+  vendor: ['palo alto', paloalto]
+tested: false
+session:
+  paging: set cli pager off
+bindings: {}

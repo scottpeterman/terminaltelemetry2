@@ -31,23 +31,13 @@ import yaml
 
 from .ssh.proxy import JumpHop, JumpSpec
 
-PLATFORM_ALIASES = {
-    "junos": "juniper_junos", "juniper": "juniper_junos",
-    "eos": "arista_eos", "arista": "arista_eos",
-    "ios": "cisco_ios", "iosxe": "cisco_ios", "ios-xe": "cisco_ios",
-    "cisco_xe": "cisco_ios", "cisco_iosxe": "cisco_ios", "cisco_ios_xe": "cisco_ios",
-    "linux_ssh": "linux", "ubuntu": "linux", "debian": "linux", "rhel": "linux",
-    "centos": "linux", "rocky": "linux", "alma": "linux", "cumulus": "linux",
-    "nxos": "cisco_nxos", "nx-os": "cisco_nxos", "cisco_nxos_ssh": "cisco_nxos",
-}
-
 _NO_JUMP = {"", "none", "direct", "null", "no"}
-_NXOS_MODELS = ("N9K", "N7K", "N5K", "N3K", "N2K", "NEXUS")
 
 
 def normalize_platform(value: str) -> str:
-    v = str(value).strip().lower()
-    return PLATFORM_ALIASES.get(v, v)
+    """Canonical platform id; aliases come from the platform packs."""
+    from .platforms import registry
+    return registry().normalize(value)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -69,21 +59,9 @@ class SessionEntry:
     jump_username: str = ""
 
     def guess_platform(self, known: Iterable[str]) -> Optional[str]:
-        known = set(known)
-        if self.platform_hint:
-            p = normalize_platform(self.platform_hint)
-            if p in known:
-                return p
-        v = self.vendor.lower()
-        m = self.model.upper()
-        guess = None
-        if "arista" in v:
-            guess = "arista_eos"
-        elif "juniper" in v:
-            guess = "juniper_junos"
-        elif "cisco" in v:
-            guess = "cisco_nxos" if m.startswith(_NXOS_MODELS) else "cisco_ios"
-        return guess if guess in known else None
+        """DeviceType hint, else pack vendor/model match (platforms.py)."""
+        from .platforms import registry
+        return registry().guess(self.platform_hint, self.vendor, self.model, known)
 
     def haystack(self) -> str:
         return " ".join((self.folder, self.name, self.host, self.platform_hint,

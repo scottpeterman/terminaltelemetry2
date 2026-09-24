@@ -1,231 +1,161 @@
 # terminaltelemetry2
 
-One device per window: an SSH terminal beside live, user-defined telemetry
-widgets. Each widget is YAML — a CLI command, a TextFSM template, a field
-mapping, and a native Qt view (table / stat / key-value, with embedded bar,
-status, and sparkline cells). Parsing runs on the vendored netlapse
-tfsm-fire engine against a bundled template database, so the same
-"output selects the template" scoring the collector uses drives the HUD.
+An SSH terminal with live telemetry beside it, one device per window. Log in
+the way you normally would, and the panels next to the terminal keep polling
+the device: interfaces, BGP, OSPF, LLDP, CPU and memory, top processes, IP
+addresses, and on Linux hosts, containers, filesystems and failed systemd
+units. The panels are plain YAML, so you can change them or write your own.
 
-<https://github.com/scottpeterman/terminaltelemetry2>
-![linux.png](https://raw.githubusercontent.com/scottpeterman/terminaltelemetry2/refs/heads/main/screenshots/linux.png)
+![Device window: terminal with live telemetry panels](https://raw.githubusercontent.com/scottpeterman/terminaltelemetry2/refs/heads/main/screenshots/linux.png)
+
+Arista EOS, Cisco IOS, Cisco NX-OS, Juniper Junos and Linux ship with full
+widget coverage. There are platform packs for about 40 other vendors, most of
+which provide only the terminal session so far. You can bind widgets to those
+yourself; see [Adding a platform](#adding-a-platform).
+
 ## Install
 
-From PyPI (once published):
-
-    pip install terminaltelemetry2
+    pip install terminaltelemetry2        # once published
 
 From source:
 
     git clone https://github.com/scottpeterman/terminaltelemetry2
     cd terminaltelemetry2
     python -m venv .venv && . .venv/bin/activate
-    pip install -e ".[dev]"
+    pip install -e .
 
-The interactive terminal pane needs `anytermqt`, which pins an exact PySide6
-and isn't on PyPI yet:
+For the full interactive terminal (cursor addressing, htop, vi), add
+`anytermqt`. It isn't on PyPI yet:
 
     pip install -e ".[terminal]" \
       --find-links https://github.com/scottpeterman/anytermqt/releases/expanded_assets/v0.1.0
 
-Without it, terminaltelemetry2 falls back to a plain terminal (no cursor addressing); the
-telemetry widgets are unaffected.
+Without it you get a basic terminal. The telemetry panels work either way.
 
-## Run
+## Quick start
 
-Installed as two commands — `terminaltelemetry2` and the short alias `tt2`:
+    tt2
 
-    tt2 --host 10.0.0.1 --user admin --platform arista_eos
-    tt2 --host eng-spine-1 --user admin --platform eos --emulate ip_lookup.json
+This opens the Connect form. Fill in host, platform, user, and a password or
+key; a jump host is optional. The form remembers your last connection, and the
+Host box lists recent hosts. Passwords and passphrases are never saved.
 
-Platforms: `arista_eos`, `cisco_ios`, `cisco_nxos`, `juniper_junos`
-(short forms `eos`, `ios`, `nxos`, `junos`).
+![Connect form](https://raw.githubusercontent.com/scottpeterman/terminaltelemetry2/refs/heads/main/screenshots/connection.png)
 
-Authentication is by password or SSH key. Password comes from `--password`,
-then `$TERMINALTELEMETRY2_PASSWORD`, then a prompt. For key auth, pass
-`-i/--key FILE` (RSA, Ed25519, or ECDSA; `~` is expanded); an encrypted key's
-passphrase comes from `--key-passphrase` or `$TERMINALTELEMETRY2_KEY_PASSPHRASE`.
-With a key, no password is prompted for. Keys also work on jump hosts.
+Or connect directly:
 
-    tt2 --host 10.0.0.1 --user admin --platform eos -i ~/.ssh/id_ed25519
+    tt2 --host 10.0.0.1 --user admin --platform eos
+    tt2 --host 10.0.0.1 --user admin --platform junos -i ~/.ssh/id_ed25519
+    tt2 --host 10.0.0.1 --user admin --platform eos -J admin@bastion1:22
 
-### Session file and device selector
+Platform short names are `eos`, `ios`, `nxos`, `junos` and `linux`. The password
+comes from `--password`, then `$TERMINALTELEMETRY2_PASSWORD`, then a prompt.
+
+### From a session file
 
     tt2 --sessions ~/sessions.yaml
 
-Opens a device selector over the same folder/sessions YAML the other terminal
-apps use (`folder_name` or `folder`, then `sessions` with `display_name`,
-`host`, `port`, and `DeviceType`/`device_type`/`platform` or `Vendor`/`Model`
-for platform inference). Search terms are AND-ed across folder, name, host,
-platform, vendor and model; Down moves into the list, Enter connects.
-Username, key file and jump host are remembered in
-`~/.terminaltelemetry2/last_connect.json`; passwords and passphrases are kept
-in memory only. With a session file loaded, `Ctrl+N` opens another device in a
-new window. Command-line credentials (`--user`, `-i`, `-J`, ...) prefill the
-selector.
+This opens a searchable device picker over the same folder/sessions YAML used
+by the other terminal apps. Type to filter, press Down to reach the list, and
+press Enter to connect. Per-device `jump_host`, `jump_port` and `jump_username`
+entries override the default jump host.
 
-### Jump host
+### Other useful flags
 
-    tt2 --host 10.0.0.1 --user admin --platform eos -J scott@bastion1:22
+| Flag | Use |
+|---|---|
+| `--enable-command 'enable'` | IOS devices that log you in at user mode |
+| `--legacy-ssh` | Old gear that needs legacy ciphers/KEX |
+| `--layout NAME` | Pick a different panel layout |
+| `--emulate [ip_lookup.json]` | Run against NetEmulate mock devices (demos, offline) |
+| `--debug` | Verbose logging |
 
-Single hop. The bastion uses the device key and password unless
-`--jump-key` / `--jump-password` (or `$TERMINALTELEMETRY2_JUMP_PASSWORD`) are
-given. In a session file, per-device `jump_host` / `jump_port` /
-`jump_username` override the default. Bypassed under `--emulate`.
+## Using it
 
-`F5` refreshes every widget. `Ctrl/Cmd +`, `-` and `0` (or `Ctrl/Cmd` + mouse
-wheel over the terminal) size the terminal font; the size is remembered.
+| Key | Action |
+|---|---|
+| `F5` | Refresh every panel now |
+| `Ctrl+N` | Open another device in a new window |
+| `Ctrl/Cmd +` / `-` / `0` | Terminal font size (remembered) |
+| `Ctrl+T` | Template Manager |
+| `Ctrl+Shift+W` | Widget Designer |
+| `Ctrl+Shift+P` | Platform Pack editor |
 
-Useful flags: `--layout NAME`, `--port`, `--enable-command 'enable'` (IOS
-devices that land in user mode), `--paging-command`, `--legacy-ssh`,
-`--terminal module:Class`, `--emulate [ip_lookup.json]` (route SSH to
-NetEmulate mocks), `--debug`.
+**Traffic monitor.** Right-click an interface row in Interface Up/Down, Ports,
+LLDP, or a counters table, then choose **Monitor &lt;intf&gt;**. The interface
+opens in a Traffic window with a live bps rate and a 5-minute chart. Rates come
+from octet counters, so they're comparable across vendors and update every poll
+(5 s by default, adjustable from 2 to 60 s).
 
-### IP Addresses
+**When a panel shows an error.** Every panel has a `{ }` button, which turns
+red when the last parse failed. Click it to open the template lab, loaded with
+the exact output the device returned and the template that failed on it. Edit
+the template until **Test** parses, then choose **Save to database**. The fix is
+saved as a new sibling template, so the original keeps working on the gear it
+already handled. [docs/WIDGETS.md](docs/WIDGETS.md) walks through this.
 
-One row per configured address (IPv4 and IPv6; link-local and Junos
-RE-internal addressing filtered out), with the link state. It reuses polls the
-window already makes -- `show interfaces` behind Interface Up/Down on
-EOS/IOS/NX-OS, `show interfaces terse` behind Ports on Junos -- and parses them
-a second way, so it adds no commands to the device. EOS/IOS/NX-OS use small
-bundled templates (`data/templates/*_ifaddr.textfsm`); `show interfaces` on IOS
-and NX-OS carries IPv4 only, so IPv6 appears there on EOS and Junos.
+## Customizing
 
-### Traffic monitor
+Your own widgets, layouts, templates and platform packs go in
+`~/.terminaltelemetry2/`. You can change that location with
+`$TERMINALTELEMETRY2_HOME`. A file there with the same name as a bundled one
+replaces the bundled version. The installed package is never modified.
 
-Right-click a row in Interface Up/Down, Ports, LLDP, or the counter/util
-tables -> **Monitor <intf>** -> Tx, Rx, or Tx / Rx. Rows land in one
-non-modal Traffic window per device, each with its live rate and a 5-minute
-chart; the X removes a row, and closing the window stops every monitor poll.
-Interfaces can also be typed into the window's Add box.
+    widgets/*.yaml         your widgets
+    layouts/*.yaml         your layouts
+    platforms/*.yaml       your platform packs
+    templates/*.textfsm    template overrides
+    tfsm_templates.db      your copy of the template DB (created on first run)
 
-Rates are computed from octet-counter deltas (`bytes * 8 / seconds`), not the
-device's load-interval averages, so they're in bps on every vendor and react
-within one poll (default 5 s, adjustable 2-60 s). Commands, one per monitored
-interface on the telemetry shell: `show interfaces <if>` (EOS, IOS),
-`show interface <if>` (NX-OS), `show interfaces <if> detail` (Junos) --
-`COUNTER_COMMANDS` in `monitor.py`. A widget opts in with
-`monitor: <column>` naming the column that holds the interface name.
+**Build a widget.** Run `tt2 --designer`, pick a template and a sample output,
+and it proposes the whole widget: fields, view, columns and alerts, with a live
+preview. Save it and it's available in every window.
 
-## How a widget works
+![Widget Designer: MikroTik system resource](https://raw.githubusercontent.com/scottpeterman/terminaltelemetry2/refs/heads/main/screenshots/designer1.png)
 
-The full guide, with the patterns and worked examples, is
-[docs/WIDGETS.md](docs/WIDGETS.md).
+![Widget Designer: Cisco AP summary table](https://raw.githubusercontent.com/scottpeterman/terminaltelemetry2/refs/heads/main/screenshots/designer2.png)
 
-A widget definition maps one command through to one view:
+**Adding a platform.** Run `tt2 --packs PLATFORM`. For each widget, the Pack
+editor suggests templates from the DB and previews the result.
+**Accept confident suggestions** binds everything it's sure of. New windows pick
+up the pack immediately.
 
-    command (per platform)  ->  TextFSM template  ->  field aliases  ->  view
+![Pack editor: Cisco IOS OSPF neighbors bound and previewed](https://raw.githubusercontent.com/scottpeterman/terminaltelemetry2/refs/heads/main/screenshots/packs1.png)
 
-Fields alias one or more TextFSM value names to a stable key the view binds to;
-`computes` derive values with safe arithmetic (utilization from rate ÷
-bandwidth, say); `rates`/`deltas` difference counters across polls; table
-columns can render a `bar`, `status`, or `spark` cell instead of text. Widgets
-that share a command and template share one poll and one parse.
+<details><summary>More pack editor screens</summary>
 
-`unique: true` collapses rows that share the widget's `key` (first wins), for
-templates that emit a record per sub-line -- Junos `show interfaces terse`
-repeats a unit once per address family and address. It's opt-in: LLDP and
-OSPF keys can legitimately repeat (two neighbors on one port, parallel
-adjacencies to one router ID).
+![Pack editor: HP ProCurve LLDP](https://raw.githubusercontent.com/scottpeterman/terminaltelemetry2/refs/heads/main/screenshots/packs2.png)
 
-Templates resolve in this order, first hit wins: a template the widget names
-explicitly, then its numbered siblings (`<name>2`, `<name>3` ... newest first)
-and nothing else; the one remembered from the last successful poll for that
-widget's request; the exact `<platform>_<command>` name; then the scored
-tfsm-fire sweep over that name's term filter. The exact name is a fast path;
-the sweep is the fallback that picks the best-scoring template when the exact
-one yields nothing. Two widgets can share one command's poll and still parse it
-with different templates.
+![Pack editor: Huawei VRP interface up/down](https://raw.githubusercontent.com/scottpeterman/terminaltelemetry2/refs/heads/main/screenshots/packs3.png)
 
-## The template database and your app directory
+</details>
 
-Config lives in `$TERMINALTELEMETRY2_HOME`, default `~/.terminaltelemetry2`:
+**Running widgets with sudo (Linux).** The Docker and FRR/vtysh widgets usually
+need root. Add a small user pack:
 
-    tfsm_templates.db      seeded from the package on first run; writes go here
-    templates/*.textfsm    per-template overrides (win over the bundled files and the DB)
-    widgets/*.yaml         add or override widgets by name
-    layouts/*.yaml         add or override layouts by name
-    last_connect.json      selector: username, key file, jump host, last device (no secrets)
-    terminal.json          terminal font size
+```yaml
+# ~/.terminaltelemetry2/platforms/linux-sudo.yaml
+platform: linux
+merge: true
+bindings:
+  containers: {sudo: true}
+  bgp_peers:  {sudo: true}
+  bgp_down:   {sudo: true}
+```
 
-The template DB ships inside the wheel as a read-only seed. On first run it is
-copied into your app directory, and everything after — including templates you
-save from the lab — is written to that copy. The installed package is never
-modified.
+Then add a NOPASSWD rule on the host, for example
+`netops ALL=(root) NOPASSWD: /usr/bin/docker, /usr/bin/vtysh`. Without the rule
+the widget fails immediately with a clear message; it never hangs on a prompt.
 
-## The template lab
+`tt2 --check-platforms` validates every pack and reports coverage.
 
-Every widget frame has a `{ }` button; it turns red when that widget's last
-parse failed. It opens the template lab preloaded with the exact capture the
-widget collected and the template it resolved to, already run so a failure
-shows on arrival. A TextFSM state error is reported as the input line and the
-template rule it stopped on, and both are highlighted.
+## More
 
-The **Template** dropdown lists the widget's template and its numbered
-siblings, marks where each lives (`[override]`, `[db:ntc]`, `[db:custom]`),
-and flags the one the widget is using (`● in use`). Picking one loads and tests
-it against the capture.
-
-Two ways to save a fix:
-
-- **Save as override** writes `templates/<selected name>.textfsm` in your app
-  directory. It shadows the DB copy for every widget and device that uses that
-  name -- right for a strict improvement, like one template that covers every
-  release.
-- **Save to database** writes a `custom` row. With the base selected it creates
-  the next sibling (`..._extensive` -> `..._extensive2`); with a sibling
-  selected it updates that sibling in place. It never overwrites a vendor
-  (`ntc`) row.
-
-**Delete sibling** removes a `custom` sibling you saved; the base and vendor
-rows can't be deleted from the lab.
-
-### Fixing a template that fails on some gear
-
-Fix a copy, not the original, so the base keeps serving the gear it already
-parses:
-
-1. A widget errors -> click `{ }` -> the lab opens on the failing capture.
-2. Edit the template until Test parses what you need. Parse only the fields
-   the widget consumes -- a strict `-> Error` on a line you don't read turns an
-   unexpected format into a whole-parse failure.
-3. **Save to database** as the next sibling.
-
-On the next poll the parser tries the base first and falls through to the
-sibling where the base returns nothing: through the family for a widget that
-names its template, through the scored sweep for one that doesn't. Delete the
-failed attempts once the fix works, since a stale sibling that returns partial
-records for some other release can win.
-
-To seed fixes into an existing install's DB from source rather than the lab:
-
-    python scripts/add_junos_templates.py ~/.terminaltelemetry2/tfsm_templates.db
-    python scripts/add_top_once_sibling.py ~/.terminaltelemetry2/tfsm_templates.db
-
-Writing widgets and templates, with the patterns behind the bundled ones, is
-covered in [docs/WIDGETS.md](docs/WIDGETS.md).
-
-## Connections
-
-Two SSH sessions per device: a persistent, prompt-driven telemetry shell
-(serialized, de-duplicated polls, reconnect with backoff) and a raw PTY for the
-terminal. Both use the vendored netlapse client (two-pass read algorithms, jump
-hosts, NetEmulate redirect for offline demos).
-
-## Development
-
-    pytest
-
-Tests run headless against ntc-templates fixtures, real device captures in
-`tests/fixtures/`, and a fake paramiko CLI device; the Qt views and the lab dialog are exercised by the app, the parsing,
-pipeline, cell-renderer, and template-lab layers by the suite.
-
-## Vendored from netlapse
-
-`terminaltelemetry2/ssh/{client,emulation,proxy}.py` and
-`terminaltelemetry2/parsing/{tfsm_fire,engine}.py` (engine.py: import path and default DB
-locations changed only).
+- [docs/WIDGETS.md](docs/WIDGETS.md): writing widgets and templates
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how parsing, template
+  resolution, packs and the SSH layer work
 
 ## License
 
-GPL-3.0-or-later.
+GPL-3.0-or-later. Third-party components are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -26,14 +26,10 @@ A wrong table is worse than an error. Enable it for ad-hoc parsing only.
 """
 from __future__ import annotations
 
-import hashlib
 import io
 import re
-import sqlite3
 import threading
-from contextlib import closing
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -41,6 +37,22 @@ import textfsm
 
 from . import pyparsers
 from .engine import ParseEngine
+from .store import TemplateStore
+
+
+def unsudo(command: str) -> str:
+    """Inverse of platforms.sudo_wrap: the command a template is named for."""
+    import shlex
+    c = command.strip()
+    if c.startswith("sudo -n sh -c "):
+        try:
+            return shlex.split(c[len("sudo -n sh -c "):])[0]
+        except (ValueError, IndexError):
+            return c
+    for pre in ("sudo -n ", "sudo "):
+        if c.startswith(pre):
+            return c[len(pre):]
+    return c
 
 AUTO = "auto"
 
@@ -61,12 +73,13 @@ class Parser:
         self.db_path = str(db_path)
         self.override_dirs = [Path(d) for d in override_dirs]
         self.vendor_fallback = vendor_fallback
+        self.store = TemplateStore(self.db_path)       # migrates a v1 DB before the engine reads it
         self._engine = ParseEngine(db_path=self.db_path, **kwargs)
         # Keyed by what the widget asked for as well as platform + command: two
         # widgets can share a command's poll yet parse it with different
         # templates (Interface Up/Down vs IP Addresses on EOS 'show interfaces').
         self._pins: Dict[Tuple[str, str, str], Tuple[str, str]] = {}
-        self._content: Dict[str, Optional[str]] = {}
+        self._content: Dict[Tuple[str, bool], Optional[str]] = {}
         self._families: Dict[str, List[str]] = {}
         self._lock = threading.Lock()
 
@@ -93,8 +106,8 @@ class Parser:
 
     def template_content(self, name: str) -> Optional[str]:
         """The .textfsm text a template name resolves to (override dir then DB),
-        or None. Public entry point for the template lab."""
-        return self._template_content(name)
+        or None, disabled rows included. Public entry point for the lab/manager."""
+        return self._template_content(name, enabled_only=False)
 
     def clean_output(self, raw: str) -> str:
         """Strip session preamble/prompts exactly as a widget poll would, so the
@@ -104,8 +117,9 @@ class Parser:
     @staticmethod
     def exact_template(platform: str, command: str) -> str:
         """The <platform>_<command> template name a widget resolves to under
-        AUTO -- the one to preload in the lab when a poll fails."""
-        return ParseEngine._build_filter(platform, command)
+        AUTO -- the one to preload in the lab when a poll fails. A sudo wrapper
+        (platforms.sudo_wrap) is ignored: templates are named for the command."""
+        return ParseEngine._build_filter(platform, unsudo(command))
 
     # -- DB write-back (the lab saves fixes here, never to a flat file) --------
 
@@ -115,19 +129,7 @@ class Parser:
         suffix. `..._top_once` -> `..._top_once2`; `..._top_once2` -> `...3`.
         The scored sweep matches the whole family off the base's term filter,
         so a sibling competes with the base instead of overwriting it."""
-        base = re.sub(r"\d+$", "", name)
-        highest = 1                                  # the base itself is instance 1
-        pat = re.compile(re.escape(base) + r"(\d+)$")
-        with closing(sqlite3.connect(self.db_path)) as conn:
-            rows = conn.execute(
-                "SELECT cli_command FROM templates WHERE cli_command GLOB ?",
-                (base + "*",),
-            ).fetchall()
-        for (cmd,) in rows:
-            m = pat.match(cmd)
-            if m:
-                highest = max(highest, int(m.group(1)))
-        return f"{base}{highest + 1}"
+        return self.store.next_sibling(name)
 
     def family(self, base: str) -> List[str]:
         """`base` then its numbered siblings (`<base>N`), highest N first, from
@@ -145,12 +147,10 @@ class Parser:
                     m = pat.match(p.stem)
                     if m:
                         found[p.stem] = int(m.group(1))
-        with closing(sqlite3.connect(self.db_path)) as conn:
-            for (cmd,) in conn.execute(
-                    "SELECT cli_command FROM templates WHERE cli_command GLOB ?", (base + "*",)):
-                m = pat.match(cmd)
-                if m:
-                    found[cmd] = int(m.group(1))
+        for cmd in self.store.names_glob(base + "*"):          # enabled only
+            m = pat.match(cmd)
+            if m:
+                found[cmd] = int(m.group(1))
         fam = [base] + sorted(found, key=found.get, reverse=True)
         with self._lock:
             self._families[base] = fam
@@ -166,25 +166,20 @@ class Parser:
         for d in self.override_dirs:
             if (d / f"{name}.textfsm").is_file():
                 return "override"
-        with closing(sqlite3.connect(self.db_path)) as conn:
-            row = conn.execute(
-                "SELECT source FROM templates WHERE cli_command = ?", (name,)).fetchone()
-        return f"db:{(row[0] or 'unknown').lower()}" if row else "missing"
+        src = self.store.source_of(name)
+        return f"db:{src.lower()}" if src is not None else "missing"
 
     def delete_template_from_db(self, cli_command: str, base: str) -> None:
         """Remove a custom sibling. Refuses the family base and any non-custom
         row -- those are what other gear still parses with."""
         if cli_command == base or not re.fullmatch(re.escape(base) + r"\d+", cli_command):
             raise ValueError(f"{cli_command!r} is not a numbered sibling of {base!r}")
-        with closing(sqlite3.connect(self.db_path)) as conn:
-            row = conn.execute(
-                "SELECT source FROM templates WHERE cli_command = ?", (cli_command,)).fetchone()
-            if row is None:
-                raise ValueError(f"{cli_command!r} is not in the DB")
-            if (row[0] or "").lower() != "custom":
-                raise ValueError(f"{cli_command!r} is a {row[0]} template; not deleting it")
-            conn.execute("DELETE FROM templates WHERE cli_command = ?", (cli_command,))
-            conn.commit()
+        src = self.store.source_of(cli_command)
+        if src is None:
+            raise ValueError(f"{cli_command!r} is not in the DB")
+        if src.lower() != "custom":
+            raise ValueError(f"{cli_command!r} is a {src} template; not deleting it")
+        self.store.delete(cli_command)
         self.reload_overrides()
 
     def save_template_to_db(self, cli_command: str, textfsm_content: str,
@@ -194,32 +189,9 @@ class Parser:
         Refuses to overwrite a non-custom (e.g. ntc) row unless allow_overwrite
         -- clobbering a vendor base can break the gear it still works for; save
         a sibling instead. Clears pins so the next poll re-resolves the family."""
-        h = hashlib.sha256(textfsm_content.encode("utf-8")).hexdigest()
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with closing(sqlite3.connect(self.db_path)) as conn:
-            row = conn.execute(
-                "SELECT source FROM templates WHERE cli_command = ?", (cli_command,)
-            ).fetchone()
-            if row and not allow_overwrite and (row[0] or "").lower() != "custom":
-                raise ValueError(
-                    f"{cli_command!r} is a {row[0]} template; save it as a sibling "
-                    f"(e.g. {self.next_sibling_name(cli_command)}) rather than overwriting it"
-                )
-            if row is not None:
-                conn.execute(
-                    "UPDATE templates SET textfsm_content=?, textfsm_hash=?, source=?, "
-                    "created=? WHERE cli_command=?",
-                    (textfsm_content, h, source, now, cli_command),
-                )
-            else:
-                nid = (conn.execute("SELECT MAX(id) FROM templates").fetchone()[0] or 0) + 1
-                conn.execute(
-                    "INSERT INTO templates (id, cli_command, cli_content, textfsm_content, "
-                    "textfsm_hash, source, created) VALUES (?,?,?,?,?,?,?)",
-                    (nid, cli_command, sample, textfsm_content, h, source, now),
-                )
-            conn.commit()
-        self.reload_overrides()                      # drop pins + cached content
+        self.store.save(cli_command, textfsm_content, source=source,
+                        sample=sample or None, allow_overwrite=allow_overwrite)
+        self.reload_overrides()
 
     # -- resolution ------------------------------------------------------------
 
@@ -233,6 +205,7 @@ class Parser:
         if not output or not output.strip():
             return Parsed(error="empty output")
 
+        command = unsudo(command)            # resolve by the command, not its sudo wrapper
         key = (platform, command, template if template and template != AUTO else AUTO)
         if template and template != AUTO:
             order = self.family(template)
@@ -305,10 +278,13 @@ class Parser:
         rows = fsm.ParseText(ParseEngine._clean_output(output))
         return [dict(zip(fsm.header, row)) for row in rows]
 
-    def _template_content(self, name: str) -> Optional[str]:
+    def _template_content(self, name: str, enabled_only: bool = True) -> Optional[str]:
+        """Override file first (always live), then the DB. Resolution passes
+        enabled_only=True so a disabled row never parses."""
+        key = (name, enabled_only)
         with self._lock:
-            if name in self._content:
-                return self._content[name]
+            if key in self._content:
+                return self._content[key]
         content: Optional[str] = None
         for d in self.override_dirs:
             p = d / f"{name}.textfsm"
@@ -316,11 +292,7 @@ class Parser:
                 content = p.read_text(encoding="utf-8")
                 break
         if content is None:
-            with closing(sqlite3.connect(self.db_path)) as conn:
-                row = conn.execute(
-                    "SELECT textfsm_content FROM templates WHERE cli_command = ?", (name,)
-                ).fetchone()
-            content = row[0] if row else None
+            content = self.store.content(name, enabled_only=enabled_only)
         with self._lock:
-            self._content[name] = content
+            self._content[key] = content
         return content

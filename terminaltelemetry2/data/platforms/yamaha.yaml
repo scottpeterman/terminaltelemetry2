@@ -1,0 +1,12 @@
+# Yamaha RTX: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: yamaha
+title: Yamaha RTX
+aliases: [rtx]
+match:
+  vendor: [yamaha]
+tested: false
+session:
+  paging: console lines infinity
+bindings: {}

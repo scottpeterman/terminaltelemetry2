@@ -103,7 +103,7 @@ class ParseEngine:
         import sqlite3
         with sqlite3.connect(self.db_path) as conn:
             self.template_count = conn.execute(
-                "SELECT COUNT(*) FROM templates"
+                "SELECT COUNT(*) FROM templates WHERE enabled = 1"
             ).fetchone()[0]
 
     # ------------------------------------------------------------------

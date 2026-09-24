@@ -25,6 +25,7 @@ import time
 from dataclasses import replace
 from typing import Callable, Dict, Optional, Tuple
 
+import shiboken6
 from PySide6.QtCore import QByteArray, QObject, QThread, QTimer, Signal, Slot
 
 from .ssh.client import SSHClient, SSHClientConfig
@@ -95,10 +96,11 @@ class TelemetrySSHClient(SSHClient):
 #   LC_ALL=C            stable number/date formats and ASCII-only markers
 
 SENTINEL = "tt2$"
-SHELL_PRIME: Dict[str, str] = {
-    "linux": ("exec env -u PROMPT_COMMAND ENV= HISTFILE=/dev/null LC_ALL=C "
+SHELL_PRIMES: Dict[str, str] = {           # platform pack session.shell -> prime
+    "posix": ("exec env -u PROMPT_COMMAND ENV= HISTFILE=/dev/null LC_ALL=C "
               f"PS1='{SENTINEL} ' PS2='' /bin/sh"),
 }
+SHELL_PRIME: Dict[str, str] = {"linux": SHELL_PRIMES["posix"]}   # platform-keyed (legacy)
 
 
 def _prime_shell(client: "TelemetrySSHClient", prime: str, timeout: float = 15.0) -> None:
@@ -127,11 +129,17 @@ def _prime_shell(client: "TelemetrySSHClient", prime: str, timeout: float = 15.0
 
 
 def open_telemetry_session(config: SSHClientConfig,
-                           prime: Optional[str] = None) -> TelemetrySSHClient:
+                           prime: Optional[str] = None,
+                           on_client: Optional[Callable[["TelemetrySSHClient"], None]] = None,
+                           ) -> TelemetrySSHClient:
     """Connect and prime a telemetry shell (mirrors executor._attempt_collect).
     With `prime`, the login shell is replaced (see SHELL_PRIME) and prompt
-    detection, enable and pagination are skipped -- they don't apply."""
+    detection, enable and pagination are skipped -- they don't apply.
+    `on_client` receives the client before connecting, so another thread can
+    cancel() a connect that would otherwise block for the full timeout."""
     client = TelemetrySSHClient(replace(config))   # connect() mutates config
+    if on_client is not None:
+        on_client(client)
     try:
         client.connect()
         client._client.get_transport().set_keepalive(30)
@@ -153,6 +161,58 @@ def open_telemetry_session(config: SSHClientConfig,
 
 class _SessionDown(Exception):
     """Session unavailable (connecting failed or in backoff). Not per-command."""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Thread shutdown
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Destroying a QThread that is still running aborts the process ("QThread:
+# Destroyed while thread is still running"). Owners cancel their work and wait
+# a bounded time; a thread that still hasn't returned (a DNS lookup can't be
+# interrupted) is detached here instead -- unparented, kept referenced, and
+# deleted once it finishes. main() reaps these before the interpreter exits.
+
+CLOSE_WAIT_MS = 3000
+_ORPHANS: "set[QThread]" = set()
+
+
+def _prune_orphans() -> None:
+    for th in list(_ORPHANS):
+        if not shiboken6.isValid(th) or not th.isRunning():
+            _ORPHANS.discard(th)
+
+
+def orphan_thread(th: Optional[QThread]) -> None:
+    """Detach a still-running QThread from its (about to be destroyed) parent."""
+    if th is None or not shiboken6.isValid(th) or not th.isRunning():
+        return
+    _prune_orphans()
+    th.setParent(None)
+    th.finished.connect(th.deleteLater)
+    _ORPHANS.add(th)
+
+
+def stop_thread(th: Optional[QThread], wait_ms: int = CLOSE_WAIT_MS) -> bool:
+    """Wait for a thread whose work was already cancelled; orphan it if it
+    overruns. True if it finished inside the wait."""
+    if th is None or not shiboken6.isValid(th):
+        return True
+    if th.wait(wait_ms):
+        return True
+    log.warning("thread %s still running after %d ms; detaching", type(th).__name__, wait_ms)
+    orphan_thread(th)
+    return False
+
+
+def reap_threads(wait_ms: int = CLOSE_WAIT_MS) -> int:
+    """At exit: wait for detached threads; returns how many are still running."""
+    _prune_orphans()
+    deadline = time.monotonic() + wait_ms / 1000
+    for th in list(_ORPHANS):
+        th.wait(max(0, int((deadline - time.monotonic()) * 1000)))
+    _prune_orphans()
+    return len(_ORPHANS)
 
 
 class TelemetryBroker(QThread):
@@ -189,8 +249,9 @@ class TelemetryBroker(QThread):
         self._lock = threading.Lock()
         self._stopping = threading.Event()
 
-        # worker-thread only
+        # worker thread writes; close() reads to cancel (cancel() is thread-safe)
         self._client: Optional[TelemetrySSHClient] = None
+        self._connecting: Optional[TelemetrySSHClient] = None
         self._fails = 0
         self._retry_at = 0.0
 
@@ -208,11 +269,17 @@ class TelemetryBroker(QThread):
         self.start()
         self._timer.start()
 
-    def close(self, wait_ms: int = 10000) -> None:
+    def close(self, wait_ms: int = CLOSE_WAIT_MS) -> bool:
+        """Stop polling and the worker. Cancels an in-progress connect or read
+        so this returns promptly; a worker that still overruns is detached
+        (never destroyed while running). True if it stopped inside wait_ms."""
         self._timer.stop()
         self._stopping.set()
         self._q.put(None)
-        self.wait(wait_ms)
+        for c in (self._connecting, self._client):
+            if c is not None:
+                c.cancel()
+        return stop_thread(self, wait_ms)
 
     def subscribe(self, command: str, interval_s: float) -> int:
         sid = next(self._ids)
@@ -255,7 +322,7 @@ class TelemetryBroker(QThread):
                 command = self._q.get(timeout=0.5)
             except queue.Empty:
                 continue
-            if command is None:
+            if command is None or self._stopping.is_set():
                 break
             try:
                 self._ensure_session()
@@ -282,21 +349,51 @@ class TelemetryBroker(QThread):
         if time.monotonic() < self._retry_at:
             raise _SessionDown()
         self.state.emit("connecting", self._config.host)
+
+        def _hold(c):
+            self._connecting = c
+            if self._stopping.is_set():              # close() ran before we registered
+                c.cancel()
         try:
-            self._client = open_telemetry_session(self._config, self._prime)
+            self._client = open_telemetry_session(self._config, self._prime, on_client=_hold)
         except Exception as e:
+            self._connecting = None
+            if self._stopping.is_set():
+                raise _SessionDown() from e
             delay = self.BACKOFF[min(self._fails, len(self.BACKOFF) - 1)]
             self._fails += 1
             self._retry_at = time.monotonic() + delay
             self.state.emit("down", f"{type(e).__name__}: {e} (retry in {delay}s)")
             raise _SessionDown() from e
+        self._connecting = None
         self._fails = 0
         self.state.emit("ready", self._client.detected_prompt or "")
 
+    RESYNC_GRACE = 60.0     # seconds of silence to wait for a slow command's own prompt
+
     def _resync(self) -> None:
-        """After a timed-out read: confirm we are back at the expected prompt."""
+        """After a timed-out read: the command is usually still running. Wait
+        for *its* prompt first (discarding the late output) -- probing with
+        newlines while it runs finds no prompt, reads as drift, and drops a
+        healthy session every poll. Only if it never finishes, probe."""
         try:
             expected = (self._client._expect_prompt or "").strip()
+            if expected:
+                # 1 s slices so a dead channel or close() ends the wait at once;
+                # the grace is idle time -- it restarts whenever output arrives.
+                late, deadline = "", time.monotonic() + self.RESYNC_GRACE
+                while time.monotonic() < deadline and not self._stopping.is_set():
+                    if not self._client.is_alive():
+                        self._drop("session closed during a slow command")
+                        return
+                    chunk = self._client._wait_for_prompt(1.0, sent=None)
+                    if chunk:
+                        late += chunk
+                        deadline = time.monotonic() + self.RESYNC_GRACE
+                    if late.rstrip().endswith(expected):
+                        log.info("slow command finished late; session kept (%d bytes discarded)",
+                                 len(late))
+                        return
             seen = (self._client.find_prompt(attempt_count=2, timeout=3.0) or "").strip()
             if expected and seen != expected:
                 self._drop(f"prompt drift: expected {expected!r}, saw {seen!r}")
@@ -392,6 +489,7 @@ class TerminalBridge(QObject):
         self._chan = None
         self._reader: Optional[_PtyReader] = None
         self._connector: Optional[_Call] = None
+        self._wired = False                          # dataReady -> _send connected
 
     def open(self) -> None:
         def _connect():
@@ -410,6 +508,7 @@ class TerminalBridge(QObject):
         self._reader.data.connect(self._feed)
         self._reader.finished.connect(self.closed)
         self._term.dataReady.connect(self._send)
+        self._wired = True
         self._reader.start()
         self.opened.emit()
 
@@ -430,10 +529,15 @@ class TerminalBridge(QObject):
             self._chan.resize_pty(width=cols, height=rows)
 
     def close(self) -> None:
-        try:
-            self._term.dataReady.disconnect(self._send)
-        except (RuntimeError, TypeError):
-            pass
+        """Cancel a connect in progress, close the PTY, and stop both threads
+        (bounded; an overrunning thread is detached, never destroyed running)."""
+        if self._wired:
+            try:
+                self._term.dataReady.disconnect(self._send)
+            except (RuntimeError, TypeError):
+                pass
+            self._wired = False
+        self._client.cancel()                        # unblocks connect() and recv()
+        stop_thread(self._connector)
+        stop_thread(self._reader)
         self._client.disconnect()
-        if self._reader is not None:
-            self._reader.wait(2000)

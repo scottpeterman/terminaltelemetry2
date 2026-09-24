@@ -1,0 +1,13 @@
+# Broadcom ICOS: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: broadcom_icos
+title: Broadcom ICOS
+aliases: [icos]
+match:
+  vendor: [broadcom]
+tested: false
+session:
+  paging: terminal length 0
+  enable: enable
+bindings: {}

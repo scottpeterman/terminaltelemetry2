@@ -1,0 +1,12 @@
+# Ruckus FastIron (ICX): session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: ruckus_fastiron
+title: Ruckus FastIron (ICX)
+aliases: [ruckus_icx, icx]
+match:
+  vendor: [ruckus]
+tested: false
+session:
+  paging: skip-page-display
+bindings: {}

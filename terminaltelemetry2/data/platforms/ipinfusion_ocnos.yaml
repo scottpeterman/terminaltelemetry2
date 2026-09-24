@@ -1,0 +1,12 @@
+# IP Infusion OcNOS: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: ipinfusion_ocnos
+title: IP Infusion OcNOS
+aliases: [ocnos]
+match:
+  vendor: ['ip infusion', ipinfusion]
+tested: false
+session:
+  paging: terminal length 0
+bindings: {}

@@ -7,6 +7,9 @@ terminaltelemetry2 -- one device per window: terminal + telemetry widgets.
     terminaltelemetry2 --host eng-spine-1 --user admin --platform arista_eos --emulate ip_lookup.json
     terminaltelemetry2 --host 10.0.0.1 --user admin --platform cisco_ios --terminal mymod:TerminalWidget
 
+--templates opens the Template Manager alone (no device); Ctrl+T opens it from
+any device window.
+
 --sessions without --host opens the device selector; with a session file
 loaded, Ctrl+N opens another device in a new window.
 
@@ -18,19 +21,23 @@ are given.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import logging
 import os
+import signal
 import sys
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, QTimer, Slot
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QApplication, QInputDialog, QLineEdit, QMainWindow, QMessageBox
+from PySide6.QtWidgets import (QApplication, QDialog, QInputDialog, QLineEdit, QMainWindow,
+                               QMessageBox, QPushButton)
 
 from . import __version__
 from .controller import DeviceController
 from .layout import LayoutError, build_layout, load_layouts, pick_layout
 from .parsing import Parser
+from .platforms import registry
 from .paths import layout_dirs, template_db, template_override_dirs, widget_dirs
 from .session import TerminalBridge
 from .sessions import (
@@ -50,6 +57,109 @@ log = logging.getLogger("terminaltelemetry2")
 
 # Top-level windows; Qt does not hold a Python reference for us.
 _WINDOWS: List["MainWindow"] = []
+_MANAGER = None                         # the one Template Manager, shared by every window
+
+
+def _live_captures():
+    from .widgets.template_manager import LiveCapture
+    for w in list(_WINDOWS):
+        for cmd, out in w.ctrl.captures().items():
+            if out and not cmd.startswith("if {"):           # skip the capability probe
+                yield LiveCapture(w._target.label, w._target.platform, cmd, out)
+
+
+def _reload_all_parsers() -> None:
+    for w in list(_WINDOWS):
+        w.parser.reload_overrides()
+
+
+_PACKS = None                           # the one Platform Pack editor
+
+
+def open_pack_editor(platform: str = ""):
+    """Show (creating once) the Platform Pack editor, optionally on `platform`."""
+    global _PACKS
+    from .widgets.pack_editor import PackEditor
+    if _PACKS is None:
+        widgets, _ = load_widgets(widget_dirs())
+        layouts, _ = load_layouts(layout_dirs())
+        _PACKS = PackEditor(Parser(template_db(), template_override_dirs()), widgets, layouts,
+                            captures=_live_captures, platform=platform)
+        _PACKS.saved.connect(_pack_saved)
+    elif platform:
+        i = _PACKS.platform.findData(platform)
+        if i >= 0:
+            _PACKS.platform.setCurrentIndex(i)
+    _PACKS.show()
+    _PACKS.raise_()
+    _PACKS.activateWindow()
+    return _PACKS
+
+
+_DESIGNER = None                        # the one Widget Designer
+
+
+def open_designer(platform: str = "", template: str = ""):
+    """Show (creating once) the Widget Designer, optionally on a template."""
+    global _DESIGNER
+    from .widgets.widget_designer import WidgetDesigner
+    if _DESIGNER is None:
+        widgets, _ = load_widgets(widget_dirs())
+        layouts, _ = load_layouts(layout_dirs())
+        _DESIGNER = WidgetDesigner(Parser(template_db(), template_override_dirs()), widgets,
+                                   layouts, captures=_live_captures, platform=platform,
+                                   template=template)
+        _DESIGNER.packs_requested.connect(open_pack_editor)
+        _DESIGNER.saved.connect(_widgets_changed)
+    elif platform:
+        i = _DESIGNER.platform.findData(platform)
+        if i >= 0:
+            _DESIGNER.platform.setCurrentIndex(i)
+        if template:
+            j = _DESIGNER.template.findData(template)
+            if j >= 0:
+                _DESIGNER.template.setCurrentIndex(j)
+                _DESIGNER.start(template)
+    _DESIGNER.show()
+    _DESIGNER.raise_()
+    _DESIGNER.activateWindow()
+    return _DESIGNER
+
+
+def _pack_saved(path: str) -> None:
+    """Tell open device windows their platform's pack changed on disk."""
+    from .platforms import load_pack
+    try:
+        platform = load_pack(Path(path)).platform
+    except Exception:
+        return
+    for w in list(_WINDOWS):
+        w.pack_changed(platform)
+
+
+def _widgets_changed(*_):
+    """A widget was saved: the Pack editor (if open) ranks it from now on."""
+    if _PACKS is not None:
+        widgets, _ = load_widgets(widget_dirs())
+        _PACKS.set_widgets(widgets)
+
+
+def open_manager():
+    """Show (creating once) the app-wide Template Manager. Its writes clear
+    every open window's parser pins, so widgets re-resolve on the next poll."""
+    global _MANAGER
+    if _MANAGER is None:
+        from .widgets.template_manager import TemplateManager
+        _MANAGER = TemplateManager(Parser(template_db(), template_override_dirs()),
+                                   captures=_live_captures)
+        _MANAGER.changed.connect(_reload_all_parsers)
+        _MANAGER.packs_requested.connect(open_pack_editor)
+        _MANAGER.design_requested.connect(open_designer)
+    _MANAGER.refresh()
+    _MANAGER.show()
+    _MANAGER.raise_()
+    _MANAGER.activateWindow()
+    return _MANAGER
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -59,7 +169,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--host")
     p.add_argument("--user")
     p.add_argument("--platform", type=normalize_platform,
-                   help="arista_eos, cisco_ios, cisco_nxos, juniper_junos (short forms: eos, ios, nxos, junos)")
+                   help="a platform pack id or alias (arista_eos/eos, cisco_ios/ios, cisco_nxos/nxos, "
+                        "juniper_junos/junos, linux, hp_comware/comware, ... -- see data/platforms)")
     p.add_argument("--port", type=int, default=22)
     p.add_argument("--password")
     p.add_argument("-i", "--key", metavar="FILE",
@@ -79,12 +190,28 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--legacy-ssh", action="store_true")
     p.add_argument("--emulate", nargs="?", const="", metavar="IP_LOOKUP_JSON",
                    help="route SSH to NetEmulate mock devices")
+    p.add_argument("--templates", action="store_true",
+                   help="open the Template Manager without connecting to a device")
+    p.add_argument("--designer", nargs="?", const="", metavar="PLATFORM",
+                   help="open the Widget Designer (optionally on PLATFORM) without a device")
+    p.add_argument("--packs", nargs="?", const="", metavar="PLATFORM",
+                   help="open the Platform Pack editor (optionally on PLATFORM) without a device")
+    p.add_argument("--licenses", action="store_true",
+                   help="print the license notice and third-party components, and exit")
+    p.add_argument("--check-platforms", action="store_true",
+                   help="validate platform packs (bundled + user), print coverage, and exit "
+                        "(non-zero on any problem)")
     p.add_argument("--debug", action="store_true")
     p.add_argument("--version", action="version", version=f"terminaltelemetry2 {__version__}")
     args = p.parse_args(argv)
 
-    if not args.host and not args.sessions:
-        p.error("either --host or --sessions is required")
+    if args.check_platforms or args.licenses:
+        return args
+    if args.packs is not None:
+        args.packs = normalize_platform(args.packs) if args.packs else ""
+    if args.designer is not None:
+        args.designer = normalize_platform(args.designer) if args.designer else ""
+    # Nothing to connect to and no tool asked for: main() opens the Connect form.
     if args.host and not (args.user and args.platform):
         p.error("--host requires --user and --platform")
     if args.jump:
@@ -97,7 +224,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 def known_platforms() -> List[str]:
     widgets, _ = load_widgets(widget_dirs())
-    return sorted({p for w in widgets.values() for p in w.commands})
+    return registry().known(widgets)
 
 
 def jump_from_args(args: argparse.Namespace) -> Optional[JumpTarget]:
@@ -112,12 +239,23 @@ def jump_from_args(args: argparse.Namespace) -> Optional[JumpTarget]:
 
 
 def build_ssh_config(target: ConnectTarget, args: argparse.Namespace) -> SSHClientConfig:
+    # Command-line flags win; else the platform pack's session defaults.
+    pack = registry().get(target.platform)
+    username = target.username
+    if pack and pack.username_suffix and not username.endswith(pack.username_suffix):
+        username += pack.username_suffix
+    extra = {}
+    if pack and pack.read_timeout:
+        extra["expect_prompt_timeout"] = int(pack.read_timeout * 1000)
     return SSHClientConfig(
-        host=target.host, port=target.port, username=target.username, password=target.password,
+        host=target.host, port=target.port, username=username, password=target.password,
         key_file=target.key_file, key_passphrase=target.key_passphrase,
-        enable_command=args.enable_command, paging_disable_command=args.paging_command,
+        enable_command=args.enable_command or (pack.enable if pack else None),
+        paging_disable_command=(args.paging_command if args.paging_command
+                                else pack.paging_config if pack else None),
         legacy_ssh=True if args.legacy_ssh else None,
         jump=target.jump_spec(),
+        **extra
     )
 
 
@@ -133,11 +271,17 @@ class MainWindow(QMainWindow):
         self.resize(1500, 900)
 
         widgets, werr = load_widgets(widget_dirs())
-        known = sorted({p for w in widgets.values() for p in w.commands})
+        plats = registry()
+        known = plats.known(widgets)
         if target.platform not in known:
             raise LayoutError(f"no widgets define platform {target.platform!r}; known: {', '.join(known)}")
+        # One window, one platform: specialize every widget with the pack's bindings.
+        werr = list(werr)
+        widgets = plats.apply(widgets, target.platform, warnings=werr)
+        self._pack = plats.get(target.platform)
         layouts, lerr = load_layouts(layout_dirs())
-        layout = pick_layout(layouts, target.platform, args.layout)
+        want = args.layout or (self._pack.layout if self._pack and self._pack.layout in layouts else None)
+        layout = pick_layout(layouts, target.platform, want)
 
         # Build the config first: a bad jump key should fail before any widgets exist.
         config = build_ssh_config(target, args)
@@ -151,15 +295,27 @@ class MainWindow(QMainWindow):
         self._font_zoom = install_font_zoom(self.term)
         root, placed = build_layout(layout, widgets, self.term, target.platform)
         self.setCentralWidget(root)
+        from .widgets.about_dialog import add_help_menu
+        add_help_menu(self)
 
         self.parser = Parser(template_db(), template_override_dirs())
-        self.ctrl = DeviceController(config, target.platform, self.parser, placed, self)
+        from .session import SHELL_PRIMES
+        prime = (SHELL_PRIMES.get(self._pack.shell) if self._pack and self._pack.shell else None) \
+            if self._pack else ...
+        self.ctrl = DeviceController(config, target.platform, self.parser, placed, self, prime=prime)
         self.ctrl.state.connect(self._on_state)
         # Template lab: every widget's { } button routes here, preloaded with the
         # capture it collected and the template it used. Overrides save to the
         # user templates dir (first entry), which the parser searches before the DB.
         self.lab = TemplateLab(self.parser, template_override_dirs()[0], self)
-        self.ctrl.lab_requested.connect(self.lab.open_source)
+        self.inspector = None
+        self.ctrl.lab_requested.connect(self._open_lab)
+        self._reload_btn = QPushButton("Platform pack changed - reload window")
+        self._reload_btn.setToolTip("This window read its platform pack when it opened; reload "
+                                    "to reconnect with the saved pack (timeouts, sudo, bindings)")
+        self._reload_btn.clicked.connect(self.reload)
+        self._reload_btn.setVisible(False)
+        self.statusBar().addPermanentWidget(self._reload_btn)
         # Right-click an interface -> Monitor Tx/Rx: one traffic window per device.
         self._target = target
         self.monitor = None
@@ -177,14 +333,33 @@ class MainWindow(QMainWindow):
         refresh.triggered.connect(self.ctrl.refresh)
         self.addAction(refresh)
 
-        if entries:
-            open_dev = QAction("Open device...", self)
-            open_dev.setShortcut(QKeySequence.New)            # Ctrl+N / Cmd+N
-            open_dev.setShortcutContext(Qt.WindowShortcut)
-            open_dev.triggered.connect(self._open_device)
-            self.addAction(open_dev)
+        design = QAction("Widget Designer", self)
+        design.setShortcut(QKeySequence("Ctrl+Shift+W"))
+        design.setShortcutContext(Qt.WindowShortcut)
+        design.triggered.connect(lambda: open_designer(self._target.platform))
+        self.addAction(design)
 
-        problems = werr + lerr
+        packs = QAction("Platform Pack editor", self)
+        packs.setShortcut(QKeySequence("Ctrl+Shift+P"))
+        packs.setShortcutContext(Qt.WindowShortcut)
+        packs.triggered.connect(lambda: open_pack_editor(self._target.platform))
+        self.addAction(packs)
+
+        templates = QAction("Template Manager", self)
+        templates.setShortcut(QKeySequence("Ctrl+T"))
+        templates.setShortcutContext(Qt.WindowShortcut)
+        templates.triggered.connect(open_manager)
+        self.addAction(templates)
+
+        # Ctrl+N: the device selector with a sessions file, else the Connect form
+        open_dev = QAction("Open device...", self)
+        open_dev.setShortcut(QKeySequence.New)            # Ctrl+N / Cmd+N
+        open_dev.setShortcutContext(Qt.WindowShortcut)
+        open_dev.triggered.connect(self._open_device)
+        self.addAction(open_dev)
+
+        from .platforms import registry_errors
+        problems = werr + lerr + registry_errors() + plats.conflicts
         self.statusBar().showMessage(
             f"layout {layout.name}; {len(placed)} widgets; {self.parser.template_count} templates"
             + (f"; {len(problems)} definition error(s), see log" if problems else "")
@@ -192,23 +367,51 @@ class MainWindow(QMainWindow):
         self.ctrl.start()
         self.bridge.open()
 
+    def pack_changed(self, platform: str) -> None:
+        """A pack for this window's platform was saved: offer a reload."""
+        if platform == self._target.platform:
+            self._reload_btn.setVisible(True)
+
+    def reload(self) -> None:
+        """Reopen this device with the current packs, widgets and layouts,
+        then close this window (same target, same credentials)."""
+        if open_window(self._args, self._target, self._entries, parent=self):
+            self.close()
+
+    def _open_lab(self, src) -> None:
+        """{ } on a widget: the TextFSM lab, or for python-parsed widgets the
+        output inspector (raw output, parser error, hint)."""
+        if src.template.startswith("py:"):
+            if self.inspector is None:
+                from .widgets.output_inspector import OutputInspector
+                self.inspector = OutputInspector(self)
+            self.inspector.open_source(src)
+        else:
+            self.lab.open_source(src)
+
     @Slot(str, str)
     def _monitor(self, intf: str, which: str) -> None:
         from .monitor import COUNTER_COMMANDS, TrafficMonitor
-        if self._target.platform not in COUNTER_COMMANDS:
+        counters = self._pack.counters if self._pack else None
+        if counters is None and self._target.platform not in COUNTER_COMMANDS:
             QMessageBox.information(self, "terminaltelemetry2",
-                                    f"No counter command for {self._target.platform}")
+                                    f"No counters: section in the {self._target.platform} platform pack")
             return
         if self.monitor is None:
             self.monitor = TrafficMonitor(self.ctrl.broker, self._target.platform,
-                                          self._target.label, self)
+                                          self._target.label, self, counters=counters)
         self.monitor.add(intf, which)
 
     @Slot()
     def _open_device(self) -> None:
-        target = run_selector(self._args, self._entries, parent=self)
-        if target is not None:
-            open_window(self._args, target, self._entries, parent=self)
+        if self._entries:
+            target = run_selector(self._args, self._entries, parent=self)
+            if target is not None:
+                open_window(self._args, target, self._entries, parent=self)
+            return
+        picked = run_connect_form(self._args, parent=self)
+        if picked is not None:
+            open_window(picked[0], picked[1], None, parent=self)
 
     @Slot(str, str)
     def _on_state(self, state: str, detail: str) -> None:
@@ -222,6 +425,41 @@ class MainWindow(QMainWindow):
         if self in _WINDOWS:
             _WINDOWS.remove(self)
         super().closeEvent(e)
+
+
+def run_connect_form(args: argparse.Namespace, parent=None
+                     ) -> Optional[Tuple[argparse.Namespace, ConnectTarget]]:
+    """The Connect form, pre-filled from the last connection. Returns a copy
+    of `args` carrying the form's choices (so each window keeps its own) and
+    the target; None on cancel. Remembers the non-secret fields."""
+    from . import recent
+    from .widgets.connect_dialog import ConnectDialog
+    plats = registry()
+    choices = [(p, (plats.get(p).title if plats.get(p) else p)) for p in known_platforms()]
+    layouts, _ = load_layouts(layout_dirs())
+    dlg = ConnectDialog(choices, list(layouts), recent.load(), parent)
+    if dlg.exec() != QDialog.Accepted:
+        return None
+    v = dlg.values()
+    a = argparse.Namespace(**vars(args))
+    a.host, a.port, a.user, a.platform = v["host"], v["port"], v["user"], v["platform"]
+    a.password = v["password"] or None
+    a.key = v["key"] or None
+    a.key_passphrase = v["key_passphrase"] or None
+    a.jump = v["jump"] or None
+    a.jump_key = v["jump_key"] or None
+    a.jump_password = v["jump_password"] or None
+    a.layout = v["layout"] or args.layout
+    a.enable_command = v["enable_command"] or args.enable_command
+    a.legacy_ssh = v["legacy_ssh"] or args.legacy_ssh
+    target = target_from_args(a)
+    if target is None:
+        return None
+    try:
+        recent.remember(v)
+    except OSError as e:
+        log.warning("could not save recent connections: %s", e)
+    return a, target
 
 
 def run_selector(args: argparse.Namespace, entries: Sequence[SessionEntry],
@@ -272,11 +510,18 @@ def target_from_args(args: argparse.Namespace) -> Optional[ConnectTarget]:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
+    if args.licenses:
+        from .about import notices_text
+        print(notices_text())
+        return 0
+    if args.check_platforms:
+        return check_platforms()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("paramiko").setLevel(logging.WARNING)
 
-    app = QApplication(sys.argv[:1])
+    app = QApplication.instance() or QApplication(sys.argv[:1])
+    _install_sigint(app)
     if args.emulate is not None:
         n = emulation.enable_emulation(args.emulate or None)
         log.info("emulation: %d mock devices", n)
@@ -290,12 +535,82 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 2
         log.info("sessions: %d devices from %s", len(entries), args.sessions)
 
+    if (args.templates or args.packs is not None or args.designer is not None) \
+            and not args.host and not args.sessions:
+        if args.templates:
+            open_manager()
+        if args.packs is not None:
+            open_pack_editor(args.packs)
+        if args.designer is not None:
+            open_designer(args.designer)
+        return _exit(app.exec())
+
     if args.host:
         target = target_from_args(args)
-    else:
+    elif entries is not None:
         target = run_selector(args, entries)
+    else:
+        picked = run_connect_form(args)          # bare `tt2`: the Connect form
+        if picked is None:
+            return 1
+        args, target = picked
     if target is None:
         return 1
     if not open_window(args, target, entries):
         return 2
-    return app.exec()
+    return _exit(app.exec())
+
+
+def check_platforms() -> int:
+    """`tt2 --check-platforms`: no Qt window, prints the pack report."""
+    import sqlite3
+    from contextlib import closing
+    from .platforms import check_report, load_platforms
+    from .paths import platform_dirs
+    from .parsing.store import migrate
+    reg, errors = load_platforms(platform_dirs())
+    widgets, werr = load_widgets(widget_dirs())
+    db = template_db()
+    migrate(str(db))
+    with closing(sqlite3.connect(str(db))) as c:
+        counts = dict(c.execute("SELECT platform, SUM(enabled) FROM templates GROUP BY platform"))
+    report, ok = check_report(reg, errors, widgets, counts)
+    print(report)
+    for e in werr:
+        print(f"PROBLEM: widget: {e}")
+    print("\nsearched: " + ", ".join(str(d) for d in platform_dirs()))
+    return 0 if ok and not werr else 1
+
+
+def _install_sigint(app: QApplication) -> None:
+    """Ctrl+C closes every window (so each stops its threads cleanly), then
+    quits. A second Ctrl+C while that is in progress exits immediately.
+    The idle timer hands control back to Python so the handler can run --
+    otherwise the signal waits until the next Qt event."""
+    state = {"n": 0}
+
+    def _on_sigint(*_):
+        state["n"] += 1
+        if state["n"] > 1:
+            os._exit(130)
+        log.info("interrupt: closing windows")
+        app.closeAllWindows()
+        app.quit()
+
+    signal.signal(signal.SIGINT, _on_sigint)
+    tick = QTimer(app)
+    tick.timeout.connect(lambda: None)
+    tick.start(250)
+
+
+def _exit(rc: int) -> int:
+    """After the event loop: wait for any detached worker threads. If one is
+    still stuck (an unresponsive DNS lookup), skip interpreter teardown --
+    finalizing a running QThread aborts the process."""
+    from .session import reap_threads
+    left = reap_threads()
+    if left:
+        log.warning("%d worker thread(s) still blocked at exit; exiting without teardown", left)
+        logging.shutdown()
+        os._exit(rc)
+    return rc

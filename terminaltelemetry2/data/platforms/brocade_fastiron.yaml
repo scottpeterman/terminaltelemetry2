@@ -1,0 +1,10 @@
+# Brocade FastIron: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: brocade_fastiron
+title: Brocade FastIron
+aliases: [fastiron, brocade_icx]
+tested: false
+session:
+  paging: skip-page-display
+bindings: {}

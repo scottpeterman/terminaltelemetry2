@@ -1,0 +1,14 @@
+platform: cisco_nxos
+title: Cisco NX-OS
+aliases: [nxos, nx-os, cisco_nxos_ssh]
+match:
+  vendor: [cisco]
+  model: ["^N9K", "^N7K", "^N5K", "^N3K", "^N2K", "^NEXUS"]
+tested: true
+session:
+  paging: terminal length 0
+  enable: null
+counters:
+  command: show interface {intf}
+  parser: builtin
+bindings: {}

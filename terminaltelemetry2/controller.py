@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from .hints import hint_for
 from .parsing import Parsed, Parser
 from .parsing.pyparsers import is_py
 from .session import SHELL_PRIME, TelemetryBroker
@@ -74,11 +75,15 @@ class DeviceController(QObject):
 
     def __init__(self, config: SSHClientConfig, platform: str, parser: Parser,
                  placed: List[Tuple[WidgetDef, WidgetFrame]],
-                 parent: Optional[QObject] = None):
+                 parent: Optional[QObject] = None, prime: object = ...):
         super().__init__(parent)
         self.platform = platform
         self.parser = parser
-        self.broker = TelemetryBroker(config, self, prime=SHELL_PRIME.get(platform))
+        # prime: the platform pack's shell prime (None = network CLI); left
+        # unset, fall back to the platform-keyed table.
+        if prime is ...:
+            prime = SHELL_PRIME.get(platform)
+        self.broker = TelemetryBroker(config, self, prime=prime)
         self._by_cmd: Dict[str, List[_Binding]] = {}
         self._gated: Dict[str, List[_Binding]] = {}      # requires test -> bindings
         self._last_output: Dict[str, str] = {}     # last complete capture per command, for the lab
@@ -121,6 +126,10 @@ class DeviceController(QObject):
         self.broker.close()
         self._pool.shutdown(wait=True, cancel_futures=True)
 
+    def captures(self) -> Dict[str, str]:
+        """Last complete raw output per polled command (for the template manager)."""
+        return dict(self._last_output)
+
     def refresh(self) -> None:
         if self._probe:
             self.broker.poll_now(self._probe)
@@ -160,9 +169,14 @@ class DeviceController(QObject):
         if not bindings:
             return                                # not a widget poll (e.g. traffic monitor)
         if not complete:
+            secs = self.broker._config.expect_prompt_timeout / 1000
             for b in bindings:
                 if b.sid is not None:
-                    b.view.mark_stale("read timed out")
+                    b.view.set_error(
+                        f"{command}: no prompt after {secs:g}s of silence (read timed out)",
+                        f"The command is slower than the read timeout on this host. Raise "
+                        f"session.read_timeout for {self.platform} in its platform pack "
+                        f"(tt2 --packs, Session tab), or poll it less often.")
             return
         self._last_output[command] = output       # keep the capture the lab will replay
         for template in {b.template for b in bindings}:
@@ -184,11 +198,11 @@ class DeviceController(QObject):
             if b.template != template or b.sid is None:
                 continue
             failed = bool(parsed.error) and not parsed.records
-            # The template lab is TextFSM-only; python-parsed widgets don't offer it.
-            b.view.set_lab_source(None if is_py(b.template)
-                                  else self._lab_source(b, command, parsed, output, failed))
+            # Every widget gets { }: TextFSM ones open the lab, python-parsed ones
+            # the output inspector (the window routes on the template prefix).
+            b.view.set_lab_source(self._lab_source(b, command, parsed, output, failed))
             if failed:
-                b.view.set_error(f"{command}: {parsed.error}")
+                b.view.set_error(f"{command}: {parsed.error}", hint_for(parsed.error, output))
                 continue
             try:
                 rows = b.pipeline.apply(parsed.records, ts)
@@ -203,6 +217,9 @@ class DeviceController(QObject):
         # Prefer the template the parser actually resolved; fall back to the
         # widget's explicit choice, then to the <platform>_<command> guess the
         # AUTO path would have tried -- that's the one to fix when a poll fails.
+        if is_py(b.template):
+            return LabSource(self.platform, command, b.template, output, b.defn.title or b.defn.name,
+                             error=parsed.error if failed else None, base=b.template)
         name = parsed.template or (b.template if b.template != "auto" else "") \
             or self.parser.exact_template(self.platform, command)
         base = b.template if b.template != "auto" else self.parser.exact_template(self.platform, command)

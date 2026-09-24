@@ -1,0 +1,10 @@
+# Cisco ASA: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: cisco_asa
+title: Cisco ASA
+aliases: [asa]
+tested: false
+session:
+  paging: terminal pager 0
+bindings: {}

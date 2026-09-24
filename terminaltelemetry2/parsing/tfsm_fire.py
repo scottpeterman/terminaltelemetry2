@@ -12,6 +12,17 @@ import threading
 from contextlib import contextmanager
 
 
+def filter_clause(filter_string: Optional[str]) -> Tuple[str, List[str]]:
+    """WHERE fragment for the sweep's term filter: every '_'/'-'-separated
+    term longer than 2 chars must appear in the template name."""
+    where, params = "1=1", []
+    for term in (filter_string or "").replace('-', '_').split('_'):
+        if len(term) > 2:
+            where += " AND cli_command LIKE ?"
+            params.append(f"%{term}%")
+    return where, params
+
+
 class ThreadSafeConnection:
     """Thread-local storage for SQLite connections"""
 
@@ -290,19 +301,10 @@ class TextFSMAutoEngine:
         return best_template, best_parsed_output, best_score
 
     def get_filtered_templates(self, connection: sqlite3.Connection, filter_string: Optional[str] = None):
-        """Get filtered templates from database using provided connection."""
+        """Enabled templates matching the filter (see filter_clause)."""
+        where, params = filter_clause(filter_string)
         cursor = connection.cursor()
-        if filter_string:
-            filter_terms = filter_string.replace('-', '_').split('_')
-            query = "SELECT * FROM templates WHERE 1=1"
-            params = []
-            for term in filter_terms:
-                if term and len(term) > 2:
-                    query += " AND cli_command LIKE ?"
-                    params.append(f"%{term}%")
-            cursor.execute(query, params)
-        else:
-            cursor.execute("SELECT * FROM templates")
+        cursor.execute(f"SELECT * FROM templates WHERE {where} AND enabled = 1", params)
         return cursor.fetchall()
 
     def __del__(self):

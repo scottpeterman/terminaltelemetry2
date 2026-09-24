@@ -1,0 +1,13 @@
+# Check Point Gaia: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+# clish commands; an expert-mode (bash) login won't parse.
+platform: checkpoint_gaia
+title: Check Point Gaia
+aliases: [gaia, checkpoint]
+match:
+  vendor: ['check point', checkpoint]
+tested: false
+session:
+  paging: set clienv rows 0
+bindings: {}

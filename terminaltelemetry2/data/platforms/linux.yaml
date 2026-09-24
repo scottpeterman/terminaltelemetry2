@@ -1,0 +1,11 @@
+platform: linux
+title: Linux host
+aliases: [linux_ssh, ubuntu, debian, rhel, centos, rocky, alma, cumulus]
+tested: true
+session:
+  shell: posix            # replace the login shell with a sentinel-prompt /bin/sh
+  read_timeout: 30        # docker/vtysh/top on a busy host can go quiet for seconds
+counters:
+  command: cat /sys/class/net/{intf}/statistics/rx_bytes /sys/class/net/{intf}/statistics/tx_bytes
+  parser: builtin
+bindings: {}

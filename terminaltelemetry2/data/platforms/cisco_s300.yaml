@@ -1,0 +1,10 @@
+# Cisco Small Business 200/300: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: cisco_s300
+title: Cisco Small Business 200/300
+aliases: [cisco_sb, cisco_s200]
+tested: false
+session:
+  paging: terminal datadump
+bindings: {}

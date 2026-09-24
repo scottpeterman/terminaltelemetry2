@@ -1,0 +1,12 @@
+# D-Link DES/DGS: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: dlink_ds
+title: D-Link DES/DGS
+aliases: [dlink, d-link]
+match:
+  vendor: [d-link, dlink]
+tested: false
+session:
+  paging: disable clipaging
+bindings: {}

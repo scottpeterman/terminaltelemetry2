@@ -332,12 +332,15 @@ class TrafficMonitor(QWidget):
     starts fresh.
     """
 
-    def __init__(self, broker, platform: str, device_label: str, parent: QWidget):
+    def __init__(self, broker, platform: str, device_label: str, parent: QWidget,
+                 counters=None):
         super().__init__(parent, Qt.Window)
         self.setWindowTitle(f"Traffic - {device_label}")
         self.resize(820, 420)
         self._broker, self._platform = broker, platform
-        self._template = COUNTER_COMMANDS[platform]
+        # counters: platforms.Counters from the pack; None = the builtin table
+        self._counters = counters
+        self._template = counters.command if counters is not None else COUNTER_COMMANDS[platform]
         self._trackers: Dict[str, RateTracker] = {}
         self._sids: Dict[str, int] = {}
         self._cmd_intf: Dict[str, str] = {}
@@ -479,8 +482,11 @@ class TrafficMonitor(QWidget):
                 r.show_status("timeout", "read timed out; rebaselining", "stale")
             return
         try:
-            rx, tx = parse_octets(self._platform, output)
-        except CounterError as e:
+            if self._counters is not None and self._counters.parser == "regex":
+                rx, tx = self._counters.parse(output)
+            else:
+                rx, tx = parse_octets(self._platform, output)
+        except (CounterError, ValueError) as e:
             tracker.reset()
             for r in self._rows_for(intf):
                 r.show_status("error", f"{command}\n{e}", "error")

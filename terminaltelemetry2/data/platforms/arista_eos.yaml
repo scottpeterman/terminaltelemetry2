@@ -1,0 +1,14 @@
+platform: arista_eos
+title: Arista EOS
+aliases: [eos, arista]
+match:
+  vendor: [arista]
+tested: true
+session:
+  paging: terminal length 0
+  enable: null
+counters:
+  command: show interfaces {intf}
+  parser: builtin
+# Widget commands for EOS still live inline in the bundled widget files.
+bindings: {}

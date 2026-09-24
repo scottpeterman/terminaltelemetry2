@@ -1,0 +1,12 @@
+# Allied Telesis AlliedWare Plus: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: allied_telesis
+title: Allied Telesis AlliedWare Plus
+aliases: [awplus, allied]
+match:
+  vendor: ['allied telesis']
+tested: false
+session:
+  paging: terminal length 0
+bindings: {}

@@ -1,0 +1,15 @@
+# Nokia SR OS: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+# classic CLI first; the MD-CLI form errors on classic (and vice versa).
+platform: alcatel_sros
+title: Nokia SR OS
+aliases: [sros, nokia_sros, timos]
+match:
+  vendor: [nokia, alcatel]
+tested: false
+session:
+  paging:
+    - environment no more
+    - environment more false
+bindings: {}

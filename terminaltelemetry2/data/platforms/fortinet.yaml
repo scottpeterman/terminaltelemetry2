@@ -1,0 +1,20 @@
+# Fortinet FortiOS: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+# `set output standard` is a persistent console setting (all admins), not a
+# session setting. `config global` and the second `end` are for VDOM-mode boxes;
+# on a non-VDOM box they just error and are discarded.
+platform: fortinet
+title: Fortinet FortiOS
+aliases: [fortios, fortigate, fortinet_ssh]
+match:
+  vendor: [fortinet]
+tested: false
+session:
+  paging:
+    - config global
+    - config system console
+    - set output standard
+    - end
+    - end
+bindings: {}

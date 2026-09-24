@@ -1,0 +1,36 @@
+# HPE Comware (5130/5510/5940/5945/7500/12900, H3C). Zero-code onboarding:
+# every binding below resolves to an ntc template already in the DB and was
+# checked against ntc-templates' own Comware test captures.
+platform: hp_comware
+title: HPE Comware
+aliases: [comware, h3c, hpe_comware, hp_comware_ssh]
+match:
+  vendor: [hpe, h3c, hewlett]
+  model: ["comware", "^FF", "^59[0-9]0", "^5[15][13]0", "^7[05]0[0-9]", "^1[02][59]0[0-9]"]
+tested: false            # bindings checked against ntc captures; paging not yet on real gear
+session:
+  paging: screen-length disable
+  enable: null
+counters:
+  command: display interface {intf}
+  # physical ports print "Input (total):", L3/VLAN interfaces print "Input:"
+  rx: '^\s*Input(?: \(total\))?:\s+\d+ packets, (\d+) bytes'
+  tx: '^\s*Output(?: \(total\))?:\s+\d+ packets, (\d+) bytes'
+bindings:
+  lldp_neighbors:
+    command: display lldp neighbor-information list
+  port_status:
+    command: display interface brief
+    fields:
+      status: [LINK]
+      vlan: [PVID]
+      name: [DESCRIPTION]
+  intf_updown:
+    command: display interface
+    fields:
+      link: [LINE_STATUS]
+  version:
+    command: display device manuinfo
+    fields:
+      model: [DEVICE_NAME]
+      serial: [DEVICE_SERIAL_NUMBER]

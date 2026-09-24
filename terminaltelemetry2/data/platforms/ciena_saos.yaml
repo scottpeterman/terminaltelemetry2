@@ -1,0 +1,12 @@
+# Ciena SAOS: session-only pack (no widget bindings yet). Paging and
+# aliases follow the netmiko device type of the same name; not yet run
+# against real gear -- set tested: true once it has been.
+platform: ciena_saos
+title: Ciena SAOS
+aliases: [saos]
+match:
+  vendor: [ciena]
+tested: false
+session:
+  paging: system shell session set more off
+bindings: {}

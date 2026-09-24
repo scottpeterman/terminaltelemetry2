@@ -15,18 +15,37 @@ Features:
 Ported from: sc2/scng/discovery/ssh/client.py
 """
 
+import errno
 import os
 import re
+import select
+import socket
+import threading
 import time
 import logging
 from io import StringIO
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional, Union
 
 import paramiko
 
 from . import emulation
 from .proxy import JumpSpec
+
+
+class ConnectCancelled(ConnectionAbortedError):
+    """SSHClient.cancel() was called while connecting or reading."""
+
+
+# Failures before any SSH byte is exchanged. Pass 2 of the two-pass connect
+# only changes signature algorithms, so it can't help these -- retrying just
+# doubles the wait on a dead or mistyped address.
+_CONNECT_PHASE = (
+    socket.timeout, socket.gaierror, ConnectionRefusedError, ConnectCancelled,
+    paramiko.ssh_exception.NoValidConnectionsError,
+)
+_IN_PROGRESS = {errno.EINPROGRESS, errno.EWOULDBLOCK, errno.EALREADY,
+                getattr(errno, "WSAEWOULDBLOCK", -1)}
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +168,7 @@ class SSHClientConfig:
     # These map to dcim_platform fields in the Netlapse DCIM schema.
     # When populated, they override the shotgun approach with a single
     # known-good command for the target platform.
-    paging_disable_command: Optional[str] = None
+    paging_disable_command: Optional[Union[str, List[str]]] = None   # one command or a sequence
     prompt_regex: Optional[str] = None
     enable_command: Optional[str] = None
     legacy_ssh: Optional[bool] = None
@@ -357,10 +376,93 @@ class SSHClient:
         self._expect_prompt: Optional[str] = None
         self._emulated: bool = False
         self._emulated_device: Optional[str] = None
+        # cancel() support: set from any thread; sockets/clients opened during
+        # connect are tracked so cancel() can close them out from under it.
+        self._cancel = threading.Event()
+        self._cancel_lock = threading.Lock()
+        self._open: list = []
 
     # ═══════════════════════════════════════════════════════════════════
     # Connection lifecycle
     # ═══════════════════════════════════════════════════════════════════
+
+    # ── cancellation ─────────────────────────────────────────────────
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancel.is_set()
+
+    def cancel(self) -> None:
+        """Abort a connect or read in progress on another thread. Closes every
+        socket and paramiko client this instance has opened; the blocked call
+        raises ConnectCancelled (or returns early) within a poll interval.
+        Idempotent; the instance is unusable afterwards."""
+        self._cancel.set()
+        with self._cancel_lock:
+            opened = list(self._open)
+        for obj in opened + [self._shell, self._client, self._jump_client]:
+            if obj is None:
+                continue
+            try:
+                if isinstance(obj, socket.socket):
+                    try:
+                        obj.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                obj.close()
+            except Exception:
+                pass
+
+    def _track(self, obj):
+        with self._cancel_lock:
+            self._open.append(obj)
+        if self._cancel.is_set():            # cancel() ran between creation and tracking
+            self.cancel()
+            raise ConnectCancelled("cancelled")
+        return obj
+
+    def _check_cancel(self) -> None:
+        if self._cancel.is_set():
+            raise ConnectCancelled("cancelled")
+
+    def _tcp_connect(self, host: str, port: int, timeout: float) -> socket.socket:
+        """socket.create_connection that cancel() can interrupt: non-blocking
+        connect polled in short slices. DNS (getaddrinfo) itself still blocks."""
+        self._check_cancel()
+        deadline = time.monotonic() + timeout
+        last: Optional[Exception] = None
+        for fam, typ, proto, _, addr in socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM):
+            self._check_cancel()
+            s = self._track(socket.socket(fam, typ, proto))
+            try:
+                s.setblocking(False)
+                err = s.connect_ex(addr)
+                if err and err not in _IN_PROGRESS:
+                    raise OSError(err, os.strerror(err))
+                while True:
+                    self._check_cancel()
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        raise socket.timeout(f"timed out connecting to {host}:{port}")
+                    _, w, x = select.select([], [s], [s], min(0.2, left))
+                    if w or x:
+                        break
+                err = s.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+                if err:
+                    raise OSError(err, os.strerror(err))
+                s.setblocking(True)
+                return s
+            except (ConnectCancelled, socket.timeout):
+                s.close()
+                raise
+            except OSError as e:
+                s.close()
+                last = e
+        if self._cancel.is_set():
+            raise ConnectCancelled("cancelled")
+        if isinstance(last, OSError) and last.errno == errno.ECONNREFUSED:
+            raise ConnectionRefusedError(last.errno, f"connection refused by {host}:{port}")
+        raise last or OSError(f"no addresses for {host}")
 
     def connect(self) -> None:
         """
@@ -479,7 +581,7 @@ class SSHClient:
             )
             self._jump_client = self._two_pass_connect(
                 self._build_jump_params(hop),
-                sock_factory=lambda: None,
+                sock_factory=lambda: self._tcp_connect(hop.host, hop.port, self.config.timeout),
             )
             jump_transport = self._jump_client.get_transport()
             target_addr = (self.config.host, self.config.port)
@@ -492,9 +594,14 @@ class SSHClient:
 
             self._client = self._two_pass_connect(base_params, sock_factory=_open_channel)
         else:
-            self._client = self._two_pass_connect(base_params, sock_factory=lambda: None)
+            self._client = self._two_pass_connect(
+                base_params,
+                sock_factory=lambda: self._tcp_connect(
+                    self.config.host, self.config.port, self.config.timeout),
+            )
 
         logger.debug(f"Connected to {self.config.host}")
+        self._check_cancel()
 
         # Open interactive shell
         self._create_shell()
@@ -515,7 +622,7 @@ class SSHClient:
         """
         legacy_first = {'pubkeys': ['rsa-sha2-512', 'rsa-sha2-256']}
 
-        client = paramiko.SSHClient()
+        client = self._track(paramiko.SSHClient())
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         try:
@@ -527,6 +634,14 @@ class SSHClient:
             client.connect(**params, disabled_algorithms=legacy_first)
             return client
         except Exception as first_err:
+            try:
+                client.close()
+            except Exception:
+                pass
+            if self._cancel.is_set():
+                raise ConnectCancelled("cancelled") from first_err
+            if isinstance(first_err, _CONNECT_PHASE):
+                raise                                   # pass 2 can't fix a dead address
             logger.debug(
                 f"Attempt 1 failed ({type(first_err).__name__}: {first_err}); "
                 f"retrying with rsa-sha2-512/256 enabled"
@@ -538,13 +653,18 @@ class SSHClient:
                 client.close()
             except Exception:
                 pass
-            client = paramiko.SSHClient()
+            client = self._track(paramiko.SSHClient())
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             params = dict(base_params)
             sock = sock_factory()
             if sock is not None:
                 params['sock'] = sock
-            client.connect(**params)
+            try:
+                client.connect(**params)
+            except Exception as e:
+                if self._cancel.is_set():
+                    raise ConnectCancelled("cancelled") from e
+                raise
             return client
 
     def _build_jump_params(self, hop) -> dict:
@@ -625,10 +745,8 @@ class SSHClient:
         self._shell.settimeout(self.config.timeout)
 
         # Wait for shell initialization
-        if self._emulated:
-            time.sleep(0.3)  # Mock devices are instant
-        else:
-            time.sleep(2)
+        if self._cancel.wait(0.3 if self._emulated else 2):   # mock devices are instant
+            raise ConnectCancelled("cancelled")
 
         # Read and discard banner/MOTD
         self._drain_output()
@@ -684,7 +802,7 @@ class SSHClient:
             buffer = ""
             prompt = None
             deadline = time.time() + timeout
-            while time.time() < deadline:
+            while time.time() < deadline and not self._cancel.is_set():
                 if self._shell.recv_ready():
                     buffer += self._recv_filtered()
                     prompt = self._extract_prompt(buffer)
@@ -721,6 +839,10 @@ class SSHClient:
 
         # Prompt patterns — ordered by specificity
         patterns = [
+            # Comware / Huawei VRP user view: <sw1>. Must precede the standard
+            # pattern, which would keep 'sw1>' -- waits still end on it, but the
+            # trailing-prompt strip needs the whole '<sw1>' line to match.
+            r'(<[^<>\s]+>)\s*$',
             r'([A-Za-z0-9\-_.@()]+[#>$%])\s*$',   # Standard prompts
             r'([^\r\n]+[#>$%])\s*$',                 # Anything ending with prompt char
         ]
@@ -804,15 +926,18 @@ class SSHClient:
             logger.debug("[EMULATION] Skipping pagination disable (mock device)")
             return
 
-        # ── Platform-specific command (from DCIM) ────────────────────
-        if command or self.config.paging_disable_command:
-            cmd = command or self.config.paging_disable_command
-            logger.debug(f"Disabling pagination with platform command: {cmd}")
-            try:
-                self._shell.send(cmd + '\n')
-                self.find_prompt(attempt_count=1, timeout=3.0)
-            except Exception as e:
-                logger.debug(f"Platform pagination command failed: {cmd} — {e}")
+        # ── Platform-specific command(s) (platform pack / DCIM) ──────
+        # A sequence runs in order, e.g. FortiOS: config system console /
+        # set output standard / end. Prompt re-detected after each step.
+        cmds = command if command is not None else self.config.paging_disable_command
+        if cmds is not None:                      # [] = platform needs none (e.g. MikroTik)
+            for cmd in ([cmds] if isinstance(cmds, str) else list(cmds)):
+                logger.debug(f"Disabling pagination with platform command: {cmd}")
+                try:
+                    self._shell.send(cmd + '\n')
+                    self.find_prompt(attempt_count=1, timeout=3.0)
+                except Exception as e:
+                    logger.debug(f"Platform pagination command failed: {cmd} — {e}")
             return
 
         # ── Shotgun approach (vendor-agnostic) ───────────────────────
@@ -974,6 +1099,8 @@ class SSHClient:
         needle = sent.strip() if sent else ""
 
         while time.time() < idle_deadline and time.time() < hard_deadline:
+            if self._cancel.is_set():
+                return output
             if self._shell.recv_ready():
                 output += self._recv_filtered()
                 idle_deadline = time.time() + timeout      # got bytes — extend the window

@@ -39,5 +39,9 @@ def widget_dirs() -> List[Path]:
     return [PKG_DATA / "widgets", _user_subdir("widgets")]
 
 
+def platform_dirs() -> List[Path]:
+    return [PKG_DATA / "platforms", _user_subdir("platforms")]
+
+
 def layout_dirs() -> List[Path]:
     return [PKG_DATA / "layouts", _user_subdir("layouts")]
